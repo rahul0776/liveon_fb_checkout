@@ -8,8 +8,8 @@ st.title("🧾 Stripe Checkout Test Harness")
 
 PRICE_ID = "price_1RnjFTP1KF2yA8BHkENSPqlp"  # Replace with your real price ID
 
-SUCCESS_URL = "https://your-username.streamlit.app/success"
-CANCEL_URL = "https://your-username.streamlit.app/cancel"
+SUCCESS_URL = "https://https://liveonfb.streamlit.app/success"
+CANCEL_URL = "https://liveonfb.streamlit.app/cancel"
 
 if st.button("💳 Buy Now for $9.99"):
     try:
