@@ -224,9 +224,9 @@ if st.button("⬇️ Start My Backup"):
 if st.session_state.get("redirect_to_projects"):
     st.session_state["redirect_to_projects"] = False
     # Redirect with query parameter to open Projects tab
-    st.switch_page("pages/FbeMyProjects.py?tab=projects")
+    st.switch_page("pages/FbeMyProjects.py")
 elif st.button("← Back to My Projects"):
     # Redirect with query parameter to open Projects tab
-    st.switch_page("pages/FbeMyProjects.py?tab=projects")
+    st.switch_page("pages/FbeMyProjects.py")
 
 st.markdown('</div>', unsafe_allow_html=True)
