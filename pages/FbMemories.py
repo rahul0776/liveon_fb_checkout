@@ -6,23 +6,45 @@ import re
 from datetime import datetime
 import os
 from azure.storage.blob import BlobServiceClient  # type: ignore
+from pathlib import Path
 def restore_session():
-    """Restore session from cache if available"""
-    cache_file = "backup_cache.json"
-    if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
-        if os.path.exists(cache_file):
+    """Restore session from per-user cache if available"""
+    # ✅ First check if already in session_state
+    if all(k in st.session_state for k in ["fb_id", "fb_name", "fb_token"]):
+        return
+
+    # ✅ Look for any cache file in 'cache' folder
+    cache_dir = Path("cache")
+    if cache_dir.exists():
+        for file in cache_dir.glob("backup_cache_*.json"):
             try:
-                with open(cache_file, "r") as f:
+                with open(file, "r") as f:
                     cached = json.load(f)
-                    st.session_state.update({
-                        "fb_token": cached.get("fb_token"),
-                        "fb_id": cached.get("latest_backup", {}).get("user_id"), 
-                        "fb_name": cached.get("latest_backup", {}).get("name"),
-                        "latest_backup": cached.get("latest_backup"),
-                        "new_backup_done": cached.get("new_backup_done")
-                    })
-            except Exception as e:
-                st.error(f"Session restore error: {str(e)}")
+                    if "fb_token" in cached:
+                        st.session_state["fb_token"] = cached.get("fb_token")
+                        st.session_state["fb_id"] = cached.get("fb_id") or cached.get("latest_backup", {}).get("user_id")
+                        st.session_state["fb_name"] = cached.get("fb_name") or cached.get("latest_backup", {}).get("name")
+                        st.session_state["latest_backup"] = cached.get("latest_backup")
+                        st.session_state["new_backup_done"] = cached.get("new_backup_done")
+                        return
+            except:
+                continue
+
+    # ✅ Fallback to old backup_cache.json
+    cache_file = Path("backup_cache.json")
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r") as f:
+                cached = json.load(f)
+                st.session_state.update({
+                    "fb_token": cached.get("fb_token"),
+                    "fb_id": cached.get("latest_backup", {}).get("user_id"),
+                    "fb_name": cached.get("latest_backup", {}).get("name"),
+                    "latest_backup": cached.get("latest_backup"),
+                    "new_backup_done": cached.get("new_backup_done")
+                })
+        except:
+            pass
 restore_session()
 if "fb_token" not in st.session_state:
     st.warning("Please login with Facebook first.")
