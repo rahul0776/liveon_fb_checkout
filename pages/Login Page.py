@@ -120,9 +120,6 @@ def exchange_code_for_token(code: str) -> str | None:
         st.exception(e)
         return None
 
-# ── REDIRECT TO FB FULL PROFILE ────────────────────────────────────────────
-# def redirect_to_fb_full_profile():
-#     st.switch_page("FbFullProfile")
 
 # ── MAIN UI LOGIC ──────────────────────────────────────────────────────────
 if "code" in st.query_params:
