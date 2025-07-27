@@ -21,7 +21,7 @@ if "fb_token" in st.session_state:
 placeholder = st.empty()
 
 for i in range(5, 0, -1):
-    countdown_placeholder.markdown(f"🔄 Redirecting to Memories in **{i}** seconds...")
+    placeholder.markdown(f"🔄 Redirecting to Memories in **{i}** seconds...")
     time.sleep(1)
 
 st.switch_page("pages/FbMemories.py")
