@@ -135,14 +135,14 @@ if "code" in st.query_params:
         st.session_state["fb_token"] = access_token
         st.success("✅ Login successful! Redirecting to start your backup…")
         time.sleep(1)  # slight delay for UI
-        st.switch_page("pages/FbeMyProjects.py")
+        st.switch_page("pages/Projects.py")
     else:
         st.error("❌ Failed to obtain access token.")
 
 elif "fb_token" in st.session_state:
     st.success("✅ Already logged in. Redirecting to your Facebook Backup page…")
     time.sleep(1)
-    st.switch_page("pages/FbeMyProjects.py")
+    st.switch_page("pages/Projects.py")
 else:
     st.markdown(f"""
         <div class="hero-box">

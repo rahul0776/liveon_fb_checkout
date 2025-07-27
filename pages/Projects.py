@@ -251,7 +251,7 @@ st.markdown("""
 if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
     st.warning("Please login to access your projects")
     if st.button("Go to Login", key="go_to_login"):
-        st.switch_page("pages/FacebookLogin.py")
+        st.switch_page("pages/Login Page.py")
     st.stop()
 
 # Get user info from session with fallback
