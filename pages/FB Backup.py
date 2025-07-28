@@ -52,7 +52,7 @@ if st.button("💳 Buy Now for $9.99"):
 
         # Poll Stripe API for payment status
         placeholder = st.empty()
-        for i in range(30):  # Poll for ~30 seconds
+        for i in range(2):  # Poll for ~30 seconds
             time.sleep(3)
             try:
                 checkout_session = stripe.checkout.Session.retrieve(session.id)
