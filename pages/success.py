@@ -8,7 +8,7 @@ st.title("✅ Payment Successful")
 st.markdown("Thank you for your purchase! Your order has been processed.")
 
 # ✅ Add image below the message
-st.image("media/success_banner.png", use_container_width=True) 
+st.image("media/success_banner.png", use_container_width=True)
 
 # ✅ Save fb_token to per-user cache (if available)
 if "fb_token" in st.session_state:
@@ -20,10 +20,14 @@ if "fb_token" in st.session_state:
     with open(cache_file, "w") as f:
         json.dump({"fb_token": st.session_state["fb_token"]}, f)
 
+# ✅ Add a button for instant redirect
+if st.button("➡️ Go to Memories Now"):
+    st.switch_page("pages/FbMemories.py")
+
 # ✅ Countdown with placeholder
 placeholder = st.empty()
 
-for i in range(5, 0, -1):
+for i in range(15, 0, -1):
     placeholder.markdown(f"🔄 Redirecting to Memories in **{i}** seconds...")
     time.sleep(1)
 
