@@ -274,7 +274,7 @@ st.markdown(f"""
             <div style="font-weight: 600;">{fb_name}</div>
             <div style="font-size: 0.8em; color: #6c757d;">Account active</div>
         </div>
-        <button onclick="window.location.href='/Login_Page'" style="
+        <button onclick="window.location.href='/Projects.py'" style="
             background: none;
             border: none;
             color: #6c757d;

@@ -7,6 +7,9 @@ st.set_page_config(page_title="Payment Success", page_icon="✅")
 st.title("✅ Payment Successful")
 st.markdown("Thank you for your purchase! Your order has been processed.")
 
+# ✅ Add image below the message
+st.image("media/success_banner.png", use_container_width=True) 
+
 # ✅ Save fb_token to per-user cache (if available)
 if "fb_token" in st.session_state:
     cache_dir = Path("cache")
