@@ -469,9 +469,14 @@ if st.button("⬇️ Start My Backup"):
     st.success("✅ Backup complete! Redirecting to dashboard...")
     st.switch_page("pages/Projects.py")
 
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← Back to My Backups"):
+            st.query_params.update(tab="backups")
+            st.switch_page("pages/Projects.py")
 
+    with col2:
+        if st.button("💳 Go to Payment Page"):
+            st.switch_page("pages/FB_Backup.py")
 
-    if st.button("← Back to My Backups"):
-        st.query_params.update(tab="backups")
-        st.switch_page("pages/Projects.py")
     st.markdown('</div>', unsafe_allow_html=True)
