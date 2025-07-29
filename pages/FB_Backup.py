@@ -3,11 +3,10 @@ import stripe
 import json
 from pathlib import Path
 
-# Restore session function (same as before)
+# Restore session
 def restore_session():
     if all(k in st.session_state for k in ["fb_id", "fb_name", "fb_token"]):
         return
-
     cache_dir = Path("cache")
     if cache_dir.exists():
         for file in cache_dir.glob("backup_cache_*.json"):
@@ -35,7 +34,7 @@ CANCEL_URL = "https://liveonfb.streamlit.app/cancel"
 
 st.set_page_config(page_title="LiveOn · Facebook Backup", page_icon="💳", layout="centered")
 
-# ✅ CSS Fix – Remove Extra White Space & Improve Layout
+# ✅ CSS for Compact Layout
 st.markdown("""
 <style>
 .page-container {
@@ -43,20 +42,34 @@ st.markdown("""
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    gap: 16px;
-    margin-top: 10px;
+    gap: 14px;
+    margin-top: 5px;
 }
-img {
-    max-height: 220px !important; /* Limit image height */
-    object-fit: cover;
+.hero-text {
+    text-align: center;
+    margin-bottom: 0px;
+}
+.hero-text h2 {
+    font-size: 28px;
+    margin-bottom: 4px;
+}
+.hero-text p {
+    font-size: 15px;
+    color: #444;
+    margin-top: 0px;
+}
+.hero-img img {
+    max-height: 180px !important;
+    object-fit: contain;
+    border-radius: 6px;
 }
 .card {
     background: white;
-    padding: 20px;
-    border-radius: 12px;
+    padding: 18px;
+    border-radius: 10px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     text-align: center;
-    width: 360px;
+    width: 340px;
 }
 .stButton>button {
     width: 100%;
@@ -73,12 +86,19 @@ img {
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ Compact Layout (No Extra Scroll)
+# ✅ Layout (Text First → Image → Button)
 st.markdown("<div class='page-container'>", unsafe_allow_html=True)
 
-st.image("media/liveon_image.png")  # Smaller, fixed size
-st.markdown("<h2 style='text-align:center;'>💾 Secure Facebook Backup</h2>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; margin-top:-8px;'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
+st.markdown("""
+<div class='hero-text'>
+    <h2>💾 Secure Facebook Backup</h2>
+    <p>Purchase your backup securely and get instant access to your Facebook memories.</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("<div class='hero-img'>", unsafe_allow_html=True)
+st.image("media/liveon_image.png")
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 
