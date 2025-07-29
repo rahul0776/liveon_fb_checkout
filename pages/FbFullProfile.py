@@ -191,23 +191,19 @@ if st.button("⬇️ Start My Backup"):
     bar.empty()
     st.success(f"✅ Backup complete! Files archived in {zip_path}")
 
-    if st.button("💳 Proceed to Payment"):
-        st.switch_page("pages/FB_Backup.py")  # Redirect to payment page
+    # ✅ Mark backup as done
+    st.session_state["backup_done"] = True
+    st.session_state["latest_backup"] = {
+        "Name": fb_name,
+        "Created On": datetime.now().strftime("%b %d, %Y"),
+        "# Posts": len(posts),
+        "Folder": folder_prefix.rstrip("/"),
+        "user_id": profile.get("id")
+    }
+    st.session_state["new_backup_done"] = True
 
-    # Update session state
-    st.session_state.update({
-        "latest_backup": {
-            "Name": fb_name,
-            "Created On": datetime.now().strftime("%b %d, %Y"),
-            "# Posts": len(posts),
-            "Folder": folder_prefix.rstrip("/"),
-            "user_id": profile.get("id")
-        },
-        "new_backup_done": True,
-        "fb_token": token
-    })
 
-    # Cache backup details
+    # ✅ Cache backup details (same as before)
     cache_dir = Path("cache")
     cache_dir.mkdir(exist_ok=True)
     cache_file = cache_dir / f"backup_cache_{safe_token_hash(token)}.json"
@@ -219,7 +215,10 @@ if st.button("⬇️ Start My Backup"):
             "fb_id": profile.get("id"),
             "fb_name": fb_name
         }, f)
-
+        
+if st.session_state.get("backup_done"):
+    if st.button("💳 Proceed to Payment"):
+        st.switch_page("pages/FB_Backup.py")
 
 # Redirect logic
 
