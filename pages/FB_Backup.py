@@ -34,7 +34,6 @@ CANCEL_URL = "https://liveonfb.streamlit.app/cancel"
 
 st.set_page_config(page_title="LiveOn · Facebook Backup", page_icon="💳", layout="centered")
 
-# ✅ CSS to remove extra space and center items properly
 st.markdown("""
 <style>
 .main {
@@ -44,9 +43,12 @@ st.markdown("""
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
+    gap: 12px;
     margin-top: 5px;
+}
+.center-image {
+    display: flex;
+    justify-content: center;
 }
 .card {
     background: white;
@@ -54,7 +56,7 @@ st.markdown("""
     border-radius: 10px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     text-align: center;
-    width: 320px;
+    width: 340px;
 }
 .stButton>button {
     width: 100%;
@@ -71,14 +73,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ Final Layout
 st.markdown("<div class='page-container'>", unsafe_allow_html=True)
 
 st.markdown("<h2 style='text-align:center;'>💾 Secure Facebook Backup</h2>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center; margin-top:-6px;'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
 
-# ✅ Load image using Streamlit so it actually shows
-st.image("media/liveon_image.png", width=250)
+# ✅ Center the image properly
+st.markdown("<div class='center-image'>", unsafe_allow_html=True)
+st.image("media/liveon_image.png", width=260)
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 
