@@ -9,13 +9,15 @@ cache_dir = Path(tempfile.gettempdir()) / "cache"
 cache_dir.mkdir(exist_ok=True)
 
 def restore_session():
+    token = st.session_state.get("fb_token")  # ✅ safely get token
+    if not token:
+        return  # No token yet → just return
+
     cache_file = cache_dir / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
     if cache_file.exists():
         with open(cache_file, "r") as f:
             cached = json.load(f)
             st.session_state.update(cached)
-
-restore_session()
 # ── Config & Styles ────────────────────────────────
 st.set_page_config(
     page_title="LiveOn · New Backup",
@@ -23,6 +25,7 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+restore_session()
 st.markdown("""
 <style>
 html,body,.stApp{background:#fafbfc;color:#131517;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto;}
