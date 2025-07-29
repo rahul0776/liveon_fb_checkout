@@ -191,6 +191,21 @@ if st.button("⬇️ Start My Backup"):
     bar.empty()
     st.success(f"✅ Backup complete! Files archived in {zip_path}")
 
+    if st.button("💳 Proceed to Payment"):
+        st.switch_page("pages/FB_Backup.py")  # Redirect to payment page
+
+    # Update session state
+    st.session_state.update({
+        "latest_backup": {
+            "Name": fb_name,
+            "Created On": datetime.now().strftime("%b %d, %Y"),
+            "# Posts": len(posts),
+            "Folder": folder_prefix.rstrip("/"),
+            "user_id": profile.get("id")
+        },
+        "new_backup_done": True,
+        "fb_token": token
+    })
     # Update session state
     st.session_state.update({
         "latest_backup": {
