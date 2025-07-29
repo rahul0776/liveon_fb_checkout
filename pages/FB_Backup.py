@@ -3,7 +3,7 @@ import stripe
 import json
 from pathlib import Path
 
-# ✅ Restore Session Function
+# Restore session function (same as before)
 def restore_session():
     if all(k in st.session_state for k in ["fb_id", "fb_name", "fb_token"]):
         return
@@ -22,45 +22,41 @@ def restore_session():
             except:
                 continue
 
-    cache_file = Path("backup_cache.json")
-    if cache_file.exists():
-        try:
-            with open(cache_file, "r") as f:
-                cached = json.load(f)
-                st.session_state.update({
-                    "fb_token": cached.get("fb_token"),
-                    "fb_id": cached.get("latest_backup", {}).get("user_id"),
-                    "fb_name": cached.get("latest_backup", {}).get("name"),
-                })
-        except:
-            pass
-
 restore_session()
 
 if "fb_token" not in st.session_state:
     st.warning("🔐 Please login with Facebook first.")
     st.stop()
 
-# ✅ Stripe Setup
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 PRICE_ID = "price_1RnjFTP1KF2yA8BHkENSPqlp"
 SUCCESS_URL = "https://liveonfb.streamlit.app/success"
 CANCEL_URL = "https://liveonfb.streamlit.app/cancel"
 
-# ✅ Page Config
 st.set_page_config(page_title="LiveOn · Facebook Backup", page_icon="💳", layout="centered")
 
-# ✅ Custom CSS for Card Styling
+# ✅ CSS Fix – Remove Extra White Space & Improve Layout
 st.markdown("""
 <style>
+.page-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    margin-top: 10px;
+}
+img {
+    max-height: 220px !important; /* Limit image height */
+    object-fit: cover;
+}
 .card {
     background: white;
-    padding: 30px;
+    padding: 20px;
     border-radius: 12px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     text-align: center;
-    max-width: 500px;
-    margin: auto;
+    width: 360px;
 }
 .stButton>button {
     width: 100%;
@@ -77,13 +73,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ Display LiveOn Image
-st.image("media/liveon_image.png", use_container_width=True)
+# ✅ Compact Layout (No Extra Scroll)
+st.markdown("<div class='page-container'>", unsafe_allow_html=True)
 
+st.image("media/liveon_image.png")  # Smaller, fixed size
 st.markdown("<h2 style='text-align:center;'>💾 Secure Facebook Backup</h2>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; margin-top:-8px;'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
 
-# ✅ Checkout Card
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 
 if st.button("💳 Buy Now for $9.99"):
@@ -100,4 +96,4 @@ if st.button("💳 Buy Now for $9.99"):
     except Exception as e:
         st.error(f"❌ Error creating Stripe Checkout session:\n\n{e}")
 
-st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div></div>", unsafe_allow_html=True)
