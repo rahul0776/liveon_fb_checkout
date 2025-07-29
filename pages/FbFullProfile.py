@@ -218,7 +218,7 @@ if st.button("⬇️ Start My Backup"):
         
 if st.session_state.get("backup_done"):
     if st.button("💳 Proceed to Payment"):
-        st.switch_page("pages/FB_Backup.py")
+        st.switch_page("pages/FB Backup")
 
 # Redirect logic
 
