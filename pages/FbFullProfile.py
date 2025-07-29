@@ -460,14 +460,14 @@ if st.button("⬇️ Start My Backup"):
         }, f)
 
     # ✅ Set Streamlit session state
-    st.session_state["fb_token"] = token  # Required for restore_session()
+    st.session_state["fb_token"] = token
     st.session_state["new_backup_done"] = True
     st.session_state["latest_backup"] = latest_backup
     st.session_state["redirect_to_backups"] = True
     st.session_state["force_reload"] = True
 
-    st.success("✅ Backup complete! Redirecting to dashboard...")
-    st.switch_page("pages/Projects.py")
+    # ✅ Show success message but do NOT auto-redirect
+    st.success("✅ Backup complete! Choose what to do next:")
 
     col1, col2 = st.columns(2)
     with col1:
