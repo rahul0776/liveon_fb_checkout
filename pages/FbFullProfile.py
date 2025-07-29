@@ -26,6 +26,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 restore_session()
+if "backup_done" not in st.session_state:
+    st.session_state["backup_done"] = False
 st.markdown("""
 <style>
 html,body,.stApp{background:#fafbfc;color:#131517;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto;}
@@ -465,9 +467,9 @@ if st.button("⬇️ Start My Backup"):
     st.session_state["latest_backup"] = latest_backup
     st.session_state["redirect_to_backups"] = True
     st.session_state["force_reload"] = True
-    st.session_state.backup_done = True
+    st.session_state["backup_done"] = True
 
-if st.session_state.backup_done:
+if st.session_state["backup_done"]:
     st.success("✅ Backup complete! Choose what to do next:")
 
     col1, col2 = st.columns(2)
