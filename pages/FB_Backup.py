@@ -3,6 +3,7 @@ import stripe
 import json
 from pathlib import Path
 
+# Restore session function
 def restore_session():
     if all(k in st.session_state for k in ["fb_id", "fb_name", "fb_token"]):
         return
@@ -33,30 +34,23 @@ CANCEL_URL = "https://liveonfb.streamlit.app/cancel"
 
 st.set_page_config(page_title="LiveOn · Facebook Backup", page_icon="💳", layout="centered")
 
-# ✅ Better layout styling
+# ✅ CSS to remove extra space and center items properly
 st.markdown("""
 <style>
-.container {
+.main {
+    padding-top: 0rem;
+}
+.page-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    gap: 12px;
-    margin-top: 10px;
-}
-.secure-title {
-    text-align: center;
-    font-size: 28px;
-    font-weight: 700;
-}
-.secure-sub {
-    text-align: center;
-    margin-top: -8px;
-    color: #ccc;
+    gap: 10px;
+    margin-top: 5px;
 }
 .card {
     background: white;
-    padding: 18px;
+    padding: 16px;
     border-radius: 10px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     text-align: center;
@@ -74,21 +68,17 @@ st.markdown("""
 .stButton>button:hover {
     background-color: #0f5bb5;
 }
-img.liveon-img {
-    max-width: 250px;
-    height: auto;
-    border-radius: 6px;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ Layout in correct order
-st.markdown("<div class='container'>", unsafe_allow_html=True)
+# ✅ Final Layout
+st.markdown("<div class='page-container'>", unsafe_allow_html=True)
 
-st.markdown("<h2 class='secure-title'>💾 Secure Facebook Backup</h2>", unsafe_allow_html=True)
-st.markdown("<p class='secure-sub'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align:center;'>💾 Secure Facebook Backup</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; margin-top:-6px;'>Purchase your backup securely and get instant access to your Facebook memories.</p>", unsafe_allow_html=True)
 
-st.markdown("<img src='media/liveon_image.png' class='liveon-img'>", unsafe_allow_html=True)
+# ✅ Load image using Streamlit so it actually shows
+st.image("media/liveon_image.png", width=250)
 
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 
