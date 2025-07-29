@@ -246,7 +246,7 @@ if editing_folder:
                     try:
                         img_path = download_image(img_url, post["id"])
                         futures.append(executor.submit(dense_caption, img_path))
-                        blob_url_base = "https://<your-storage-account>.blob.core.windows.net"
+                        blob_url_base = "https://fbbackupkhushi.blob.core.windows.net"
                         azure_img_url = generate_blob_url(user_folder, img_path.name)
                         post["picture"] = azure_img_url
                         post["images"] = [azure_img_url]
