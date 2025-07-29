@@ -206,18 +206,6 @@ if st.button("⬇️ Start My Backup"):
         "new_backup_done": True,
         "fb_token": token
     })
-    # Update session state
-    st.session_state.update({
-        "latest_backup": {
-            "Name": fb_name,
-            "Created On": datetime.now().strftime("%b %d, %Y"),
-            "# Posts": len(posts),
-            "Folder": folder_prefix.rstrip("/"),
-            "user_id": profile.get("id")
-        },
-        "new_backup_done": True,
-        "fb_token": token
-    })
 
     # Cache backup details
     cache_dir = Path("cache")
