@@ -1,44 +1,102 @@
 # ======================
 # FILE: FbeMyProjects.py
 # ======================
-
 import streamlit as st
 import os
 import json
 from datetime import datetime
 from pandas import DataFrame
 from azure.storage.blob import BlobServiceClient
-import base64
-import requests
+import requests  # ✅ Needed for Facebook Graph API calls
+import hashlib  # ✅ Added for hashing fb_token for safe filenames
+from pathlib import Path
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
     layout="wide",
     page_icon="📚",
     initial_sidebar_state="collapsed"
 )
-
-
+# 🔥 Hash token for safe cache filename
+def safe_token_hash(token):
+    return hashlib.md5(token.encode()).hexdigest()
 def restore_session():
-    """Restore session from cache if available"""
+    """Restore session from per-user cache if available"""
     fb_token = st.session_state.get("fb_token")
-    cache_file = f"backup_cache_{fb_token}.json" if fb_token else "backup_cache.json"
-    if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
-        if os.path.exists(cache_file):
+    if fb_token:
+        CACHE_DIR = Path("cache")
+        cache_file = CACHE_DIR / f"backup_cache_{hashlib.md5(fb_token.encode()).hexdigest()}.json"
+
+        # Try to find any cache file
+        for f in Path(".").glob("cache/backup_cache_*.json"):
             try:
-                with open(cache_file, "r") as f:
-                    cached = json.load(f)
-                    st.session_state.update({
-                        "fb_token": cached.get("fb_token"),
-                        "fb_id": cached.get("latest_backup", {}).get("user_id"), 
-                        #"fb_name": cached.get("fb_name"),  # Default to "User" if none
-                        "fb_name": cached.get("latest_backup", {}).get("name"),
-                        "latest_backup": cached.get("latest_backup"),
-                        "new_backup_done": cached.get("new_backup_done")
-                    })
+                with open(f, "r") as file:
+                    cached = json.load(file)
+                    if "fb_token" in cached:
+                        st.session_state.update({
+                            "fb_token": cached.get("fb_token"),
+                            "fb_id": cached.get("latest_backup", {}).get("user_id"),
+                            "fb_name": cached.get("latest_backup", {}).get("Name"),
+                            "latest_backup": cached.get("latest_backup"),
+                            "new_backup_done": cached.get("new_backup_done"),
+                            "new_project_added": cached.get("new_project_added")
+                        })
+                        break
             except Exception as e:
-                st.error(f"Session restore error: {str(e)}")
+                st.error(f"Error restoring from {f}: {e}")
+
+            
 
 restore_session()
+st.warning(f"🧠 Session loaded: fb_id={st.session_state.get('fb_id')}")
+st.warning(f"🧠 latest_backup={st.session_state.get('latest_backup')}")
+st.warning(f"🧠 new_backup_done={st.session_state.get('new_backup_done')}")
+
+if st.session_state.pop("force_reload", False):  # 👈 ADD THIS
+    st.rerun()  # ✅ For Streamlit >=1.30, use st.rerun
+# 🛡 Ensure required session keys exist
+for key in ["fb_token", "fb_id", "fb_name"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+
+
+
+@st.cache_resource
+def get_blob_service_client():
+    AZ_CONN = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
+    if AZ_CONN:
+        return BlobServiceClient.from_connection_string(AZ_CONN)
+    return None
+
+# Set up Azure container client
+blob_service_client = get_blob_service_client()
+container_client = blob_service_client.get_container_client("backup")
+
+# Prepare paths early for reloads
+user_folder = f"{st.session_state['fb_id']}/projects"
+projects_blob_path = f"{user_folder}/projects_{st.session_state['fb_id']}.json"
+
+
+
+# 🔥 Force reload all backups and projects after redirect
+if st.session_state.get("redirect_to_projects", False) or st.session_state.get("new_project_added", False):
+    st.session_state["redirect_to_projects"] = False  # reset flag
+    st.session_state["new_project_added"] = False     # reset flag
+    blob_client = container_client.get_blob_client(projects_blob_path)
+    try:
+        if blob_client.exists():
+            all_projects = json.loads(blob_client.download_blob().readall().decode("utf-8"))
+            projects.clear()  # clear old list
+            for proj in all_projects:
+                backup_folder = proj.get("backup_folder", "")
+                summary_blob = container_client.get_blob_client(f"{backup_folder}/summary.json")
+                proj["status"] = "Ready" if summary_blob.exists() else "⚠️ Backup Missing"
+                if not any(p["id"] == proj["id"] for p in projects):
+                    projects.append(proj)
+
+    except Exception as e:
+        st.warning(f"⚠️ Could not refresh projects: {e}")  # 👈 Friendlier warning
+
+
 
 # ✅ Refresh Facebook user details from API
 if "fb_token" in st.session_state:
@@ -51,43 +109,38 @@ if "fb_token" in st.session_state:
     except Exception as e:
         st.error(f"Failed to refresh Facebook user info: {e}")
         st.stop()
-
-# ✅ Ensure all session variables are present
 missing_keys = [k for k in ["fb_id", "fb_name", "fb_token"] if k not in st.session_state]
 if missing_keys:
     st.warning(f"⚠️ Missing session keys: {missing_keys}")
     st.stop()
+# ─── Tab Handling ───────────────────────────────────
+# Get query parameters and set default tab
+query_params = st.query_params
+if st.session_state.pop("redirect_to_projects", False):
+    default_tab = "projects"
+elif st.session_state.pop("redirect_to_backups", False):
+    default_tab = "backups"
+else:
+    default_tab = query_params.get("tab", "backups")
+
 
 # ─── Facebook Session Variables ───────────────────────
-fb_id = st.session_state["fb_id"]
-fb_name = st.session_state["fb_name"]
-fb_token = st.session_state["fb_token"]
+
 query_params = st.query_params
-order_status = (query_params.get("order") or [None])[0]
-
-if "order" in query_params and query_params["order"][0] == "success":
-    st.markdown(
-        """
-        <div style='background-color:#d4edda;padding:15px;border-radius:8px;
-        border:1px solid #c3e6cb;color:#000;'>
-        🎉 Your order was successful! Thank you.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-elif "order" in query_params and query_params["order"][0] == "cancel":
-    st.warning("❌ Your order was cancelled.")
 if "edit_duration" in query_params:
-    st.session_state["editing_backup_folder"] = query_params["edit_duration"][0]
-    st.switch_page("pages/FbFullProfile.py")
-# if "generate_memories" in query_params:
-#     st.session_state["selected_backup"] = query_params["generate_memories"][0]
-#     st.switch_page("pages/FbMemories.py")
-
+    folder_name = query_params["edit_duration"][0]
+    st.warning(f"Editing folder passed from dashboard: {folder_name}")  # 🔥 DEBUG
+    if folder_name and folder_name != "f":  # ✅ Prevent invalid folder names
+        st.session_state["editing_backup_folder"] = folder_name
+        st.switch_page("pages/FbFullProfile.py")
+    else:
+        st.error("❌ Invalid folder passed. Please select a valid backup.")
+if "generate_memories" in query_params:
+    st.session_state["selected_backup"] = query_params["generate_memories"][0]
+    st.switch_page("pages/FbMemories.py")
 # Custom CSS with modern design
 st.markdown("""
 <style>
-            
     :root {
         --primary: #4361ee;
         --secondary: #3f37c9;
@@ -119,14 +172,14 @@ st.markdown("""
         color: white;
     }
     div[data-testid="stTabs"] button {
-    color: var(--dark) !important;
+        color: var(--dark) !important;
     }
     .stButton>button.primary:hover {
         background: var(--secondary);
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
-        .download-actions {
+    .download-actions {
         display: flex;
         gap: 10px;
         align-items: center;
@@ -155,22 +208,7 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
-    .stButton>button {
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-.stButton>button:hover {
-    background: var(--secondary);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-}
-        .card {
+    .card {
         background: white;
         border-radius: 12px;
         padding: 24px;
@@ -243,22 +281,16 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# ─── Session State Restoration ──────────────────
-
-
 # ─── Authentication Check ──────────────────────
 if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
-    st.warning("Please login to access your projects")
-    if st.button("Go to Login", key="go_to_login"):
-        st.switch_page("pages/Login Page.py")
+    st.warning("Please log in to access your projects.")
+    if st.button("🔑 Go to Login"):
+        st.switch_page("LiveOn.py")
     st.stop()
-
 # Get user info from session with fallback
 fb_id = st.session_state["fb_id"]
 fb_name = st.session_state.get("fb_name")  # Default to "User" if none
 fb_token = st.session_state["fb_token"]
-
 # ─── Header with User Info ─────────────────────
 st.markdown(f"""
 <div class="header">
@@ -274,7 +306,7 @@ st.markdown(f"""
             <div style="font-weight: 600;">{fb_name}</div>
             <div style="font-size: 0.8em; color: #6c757d;">Account active</div>
         </div>
-        <button onclick="window.location.href='/Projects.py'" style="
+        <button onclick="window.location.href='/FacebookLogin'" style="
             background: none;
             border: none;
             color: #6c757d;
@@ -291,99 +323,161 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 # ─── Azure Storage Setup ───────────────────────
-@st.cache_resource
-def get_blob_service_client():
-    AZ_CONN = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
-    if AZ_CONN:
-        return BlobServiceClient.from_connection_string(AZ_CONN)
-    return None
 
-blob_service_client = get_blob_service_client()
+
 backups = []
-
+# In the Azure Storage Setup section
 if blob_service_client:
     try:
         container_client = blob_service_client.get_container_client("backup")
         blobs = list(container_client.list_blobs())
         
         # Process backups with progress indicator
-        with st.spinner("Loading your backups..."):
-            folders = set(b.name.split("/")[0] for b in blobs if b.name and "summary.json" in b.name)
-            for folder in sorted(folders, reverse=True):
-                if not folder:
-                    continue
+        # 🆕 Process user-specific backups
+        with st.spinner("🔄 Loading your backups…"):
+            user_id = str(st.session_state["fb_id"]).strip()
+            for blob in blobs:
+                if blob.name.endswith("summary.json"):
+                    parts = blob.name.split("/")
+                    if len(parts) >= 2:
+                        folder_fb_id = parts[0].strip()
+                        folder_name = parts[1].strip()
+                        # ✅ Skip any folders inside /projects/
+                        if folder_fb_id == user_id and not folder_name.startswith("projects/"):
+                            try:
+                                summary_blob = container_client.get_blob_client(blob.name)
+                                summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
+                                posts_blob_path = f"{folder_fb_id}/{folder_name}/posts+cap.json"
+                                posts_blob = container_client.get_blob_client(posts_blob_path)
+                                if posts_blob.exists():
+                                    created_date = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
+                                    backups.append({
+                                        "id": f"{folder_fb_id}/{folder_name}",
+                                        "name": summary.get("user") or folder_name.replace("_", " "),
+                                        "date": created_date.strftime("%b %d, %Y"),
+                                        "posts": summary.get("posts", 0),
+                                        "status": "Completed",
+                                        "raw_date": created_date
+                                    })
+                            except Exception as e:
+                                st.warning(f"⚠️ Error reading backup in {blob.name}: {e}")
+
+            
+            # Process each folder
+            for backup in backups:
                 try:
-                    blob_path = f"{folder}/summary.json"
-                    summary_blob = container_client.download_blob(blob_path)
-                    summary = json.loads(summary_blob.readall().decode("utf-8"))
-
-                    # If fb_id is set, filter by it
-                    if fb_id and summary.get("user_id") != fb_id:
-                        continue
-
-                    created_date = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
-
-                    backups.append({
-                        "id": folder,
-                        "name": summary.get("user") or folder.replace("_", " "),
-                        "date": created_date.strftime("%b %d, %Y"),
-                        "posts": summary.get("posts", 0),
-                        "status": "Completed",
-                        "raw_date": created_date
-                    })
-
+                    summary_blob = container_client.get_blob_client(f"{backup['id']}/summary.json")
+                    posts_blob = container_client.get_blob_client(f"{backup['id']}/posts+cap.json")
+                    if summary_blob.exists():
+                        summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
+                        # Strict user ID matching
+                        backup_user_id = str(summary.get("user_id", "")).strip()
+                        current_user_id = str(st.session_state["fb_id"]).strip()
+                        if backup_user_id == current_user_id and posts_blob.exists():
+                            created_date = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
+                            # Add to backups if not already present
+                            folder_normalized = backup['id'].lower().strip()
+                            if not any(b["id"].lower().strip() == folder_normalized for b in backups):
+                                backups.append({
+                                    "id": backup['id'],
+                                    "name": summary.get("user") or backup['id'].replace("_", " "),
+                                    "date": created_date.strftime("%b %d, %Y"),
+                                    "posts": summary.get("posts", 0),
+                                    "status": "Completed",
+                                    "raw_date": created_date
+                                })
                 except Exception as e:
-                    st.error(f"Error loading backup {folder}: {str(e)}")
+                    st.warning(f"⚠️ Error processing backup {backup['id']}: {str(e)}")
+                    continue
 
-        # Sort by date
+        # Sort backups by date (newest first)
         backups.sort(key=lambda x: x["raw_date"], reverse=True)
-        
     except Exception as e:
-        st.error(f"Azure connection error: {str(e)}")
+        st.error(f"Azure connection error: {e}")
+
 
 # ─── Projects Management ───────────────────────
-projects_file = f"projects_{fb_id}.json"
 projects = []
+user_folder = f"{fb_id}/projects"
+projects_blob_path = f"{user_folder}/projects_{fb_id}.json"
+# 🔥 Always fetch projects fresh from Azure
+try:
+    blob_client = container_client.get_blob_client(projects_blob_path)
+    projects = []  # Start fresh
+    if blob_client.exists():
+        all_projects = json.loads(blob_client.download_blob().readall().decode("utf-8"))
+        for proj in all_projects:
+            backup_folder = proj.get("backup_folder", "")
+            summary_blob = container_client.get_blob_client(f"{backup_folder}/summary.json")
+            # ✅ Add project even if backup folder is missing
+            if summary_blob.exists():
+                proj["status"] = "Ready"
+            else:
+                proj["status"] = "⚠️ Backup Missing"
+            # ✅ Avoid duplicates using project id
+            if not any(p["id"] == proj["id"] for p in projects):
+                projects.append(proj)
+    else:
+        st.warning("No projects metadata found in Azure.")
+except Exception as e:
+    st.error(f"❌ Error loading projects from Azure: {e}")
 
-if os.path.exists(projects_file):
-    try:
-        with open(projects_file, "r") as f:
-            projects = json.load(f)
-    except Exception as e:
-        st.error(f"Error loading projects: {str(e)}")
+
 
 # Handle new backup if redirected
 if st.session_state.pop("new_backup_done", False):
     latest = st.session_state.pop("latest_backup", None)
-    if latest and latest.get("user_id") == st.session_state["fb_id"]:
-        normalized = {
-            "id": latest.get("id"),
-            "name": latest.get("name") or latest.get("Name", "Unnamed Backup"),
-            "date": latest.get("date") or latest.get("Created On", "Unknown"),
-            "posts": latest.get("posts") or latest.get("# Posts", 0),
-            "status": latest.get("status", "Completed"),
-            "raw_date": datetime.now()
-        }
-        backups.insert(0, normalized)
+    st.warning(f"✅ Attempting to add new backup: {latest}")  # ✅ Now it's defined
+    if latest and str(latest.get("user_id")).strip() == str(st.session_state["fb_id"]).strip():
+        folder = latest.get("Folder").rstrip("/").lower()
+        if blob_service_client:
+            summary_blob = container_client.get_blob_client(f"{folder}/summary.json")
+            posts_blob = container_client.get_blob_client(f"{folder}/posts+cap.json")
+            if summary_blob.exists() and posts_blob.exists():
+                # Skip if already exists
+                if not any(b["id"].rstrip("/").lower() == folder for b in backups):
+                    backups.insert(
+                        0,
+                        {
+                            "id": folder,
+                            "name": latest.get("Name", "Unnamed Backup"),
+                            "date": latest.get("Created On", "Unknown"),
+                            "posts": latest.get("# Posts", 0),
+                            "status": "Completed",
+                            "raw_date": datetime.now()
+                        }
+                    )
+                    st.warning(f"✅ Added session backup: {folder}")  # DEBUG
+            else:
+                st.warning(f"🚫 Skipped session backup (missing files): {folder}")  # DEBUG
+# ─── Handle new project creation ────────────────────────
+# 🚀 Always load latest projects from Azure
+try:
+    blob_client = container_client.get_blob_client(projects_blob_path)
+    projects.clear()
+    if blob_client.exists():
+        all_projects = json.loads(blob_client.download_blob().readall().decode("utf-8"))
+        for proj in all_projects:
+            backup_folder = proj.get("backup_folder", "")
+            summary_blob = container_client.get_blob_client(f"{backup_folder}/summary.json")
+            if summary_blob.exists():
+                proj["status"] = "Ready"
+            else:
+                proj["status"] = "⚠️ Backup Missing"
+            # Avoid duplicates
+            if not any(p["id"] == proj["id"] for p in projects):
+                projects.append(proj)
+except Exception as e:
+    st.error(f"❌ Error loading projects: {e}")
 
-
-# Handle new project if redirected
-if st.session_state.pop("new_project_added", False):
-    latest_project = st.session_state.pop("latest_project", None)
-    if latest_project:
-        projects.append(latest_project)
-        try:
-            with open(projects_file, "w") as f:
-                json.dump(projects, f)
-        except Exception as e:
-            st.error(f"Error saving project: {str(e)}")
-
+            
 # ─── Main Content ──────────────────────────────
+# Update the tabs creation:
 tab1, tab2, tab3 = st.tabs(["📦 My Backups", "📚 My Projects", "📦 Orders"])
-
-with tab1:
+active_tab = default_tab  # This will control which tab opens by default
+# Later in the code where you create tabs:
+with tab1 if active_tab == "backups" else tab2 if active_tab == "projects" else tab3:
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("＋ New Backup", type="primary", use_container_width=True):
@@ -407,44 +501,31 @@ with tab1:
             with cols[3]:
                 st.caption("Actions")
             with cols[4]:
-                subcols = st.columns(3)
-
-                # Download JSON button
-                with subcols[0]:
-                    posts_blob_path = f"{backup['id']}/posts+cap.json"
-                    try:
+                posts_blob_path = f"{backup['id']}/posts+cap.json"
+                try:
+                    if blob_service_client:
                         blob_client = container_client.get_blob_client(posts_blob_path)
-                        blob_client.get_blob_properties()
+                        blob_client.get_blob_properties()  # Check existence
                         blob_data = blob_client.download_blob().readall()
                         st.download_button(
                             label="📥 Download JSON",
                             data=blob_data,
                             file_name=f"{backup['id']}.json",
-                            mime="application/json"
+                            mime="application/json",
+                            use_container_width=True
                         )
-                    except Exception:
-                        st.caption("No posts file")
-
-                # Edit Duration button as markdown styled link
-                with subcols[1]:
-                    st.markdown(
-                        f"""
-                        <a href="?edit_duration={backup['id']}" class="stButton primary" 
-                        style="text-decoration: none; color: white; padding: 8px 16px; 
-                        border-radius: 6px; background: var(--primary); display: inline-block;">
-                        ✂️ Edit Duration</a>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-                # Generate Memories streamlit button
-                with subcols[2]:
-                    if st.button("📘 Generate Memories", key=f"mem_{backup['id']}"):
-                        st.session_state["selected_backup"] = backup["id"]
+                except Exception:
+                    st.caption("No posts file available to download.")
+                # Use Streamlit buttons instead of HTML links
+                edit_col, memories_col = st.columns([1, 1])
+                with edit_col:
+                    if st.button("✂️ Edit Duration", key=f"edit_{backup['id']}", type="primary"):
+                        st.session_state["editing_backup_folder"] = backup['id']
+                        st.switch_page("pages/FbFullProfile.py")
+                with memories_col:
+                    if st.button("📘 Generate Memories", key=f"memories_{backup['id']}", type="primary"):
+                        st.session_state["selected_backup"] = backup['id']
                         st.switch_page("pages/FbMemories.py")
-
-
-
             st.divider()
         
         st.markdown("</div>", unsafe_allow_html=True)
@@ -457,7 +538,6 @@ with tab1:
             <button class="stButton primary" onclick="window.location.href='/FbFullProfile'">Create Backup</button>
         </div>
         """, unsafe_allow_html=True)
-
 with tab2:
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -466,7 +546,7 @@ with tab2:
     
     if projects:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        for project in projects:
+        for i, project in enumerate(projects):  # Add enumerate to get index
             cols = st.columns([3, 1, 1, 1])
             with cols[0]:
                 st.markdown(f"**{project.get('name', 'Unnamed Project')}**")
@@ -478,13 +558,18 @@ with tab2:
                 st.markdown(f"**{project.get('created', 'Unknown')}**")
                 st.caption("Created")
             with cols[3]:
-                if st.button("Continue", key=f"continue_{project.get('id')}"):
-                    st.session_state.selected_project = project.get('id')
-                    st.switch_page("pages/FbProjectEditor.py")
-            
+                edit_col, memories_col = st.columns([1, 1])
+                with edit_col:
+                    if st.button("📝 Edit Project", key=f"edit_project_{project.get('id')}_{i}"):
+                        st.session_state.selected_project = project.get('id')
+                        st.switch_page("pages/FbProjectEditor.py")
+                with memories_col:
+                    if st.button("📘 Generate Memories", key=f"memories_project_{project.get('id')}_{i}"):
+                        st.session_state["selected_project"] = project.get("id")
+                        st.switch_page("pages/FbMemories.py")
             st.divider()
         st.markdown("</div>", unsafe_allow_html=True)
-    else:
+    if isinstance(projects, list) and len(projects) == 0:
         st.markdown("""
         <div class="empty-state">
             <div class="empty-state-icon">📝</div>
