@@ -474,7 +474,7 @@ if st.button("⬇️ Start My Backup"):
     # 📖 Show scrapbook demo preview
     image_posts = [p for p in posts if p.get("picture") or p.get("images")]
     if image_posts:
-        FUNCTION_URL = "http://localhost:7071/api/embed_classify_posts_into_chapters"
+        FUNCTION_URL = "https://liveon-func-app.azurewebsites.net/api/embed_classify_posts_into_chapters"
 
         chapters = ["Family & Friends", "Travel", "Work Achievements", "Celebrations", "Milestones"]
 
