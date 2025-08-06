@@ -75,7 +75,7 @@ st.markdown(
 )
 
 # ── CONSTANTS ────────────────────────────────────────────────
-FUNCTION_BASE = "https://liveon-func-app3.azurewebsites.net/api/function_app"
+FUNCTION_BASE = "https://liveon-func-app3.azurewebsites.net/api"
 CONNECT_STR   = st.secrets["AZURE_CONNECTION_STRING"]
 CONTAINER     = "backup"
 
