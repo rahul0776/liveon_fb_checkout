@@ -142,17 +142,17 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
         st.error(f"❌ Azure Function error: {err}")
         st.stop()
 
-if st.sidebar.button("🧪 Test ask_about_blob manually"):
-    debug_payload = {
-        "question": "Who is this person based on their Facebook posts?",
-        "posts": posts[:5]  # Send only first 5 posts to test
-    }
-    try:
-        res = call_function("ask_about_blob", debug_payload)
-        st.code(res.text)
-    except Exception as e:
-        st.error("❌ Azure Function test failed")
-        st.exception(e)
+# if st.sidebar.button("🧪 Test ask_about_blob manually"):
+#     debug_payload = {
+#         "question": "Who is this person based on their Facebook posts?",
+#         "posts": posts[:5]  # Send only first 5 posts to test
+#     }
+#     try:
+#         res = call_function("ask_about_blob", debug_payload)
+#         st.code(res.text)
+#     except Exception as e:
+#         st.error("❌ Azure Function test failed")
+#         st.exception(e)
 # ── HELPERS ────────────────────────────────────────────────
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -395,10 +395,18 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
             "max_per_chapter": max_per_chapter
         }, timeout=300)
 
-        classification = classify_res.json()
-        if advanced_mode:
-            st.subheader("📦 Raw Classification Response")
-            st.json(classification)
+        try:
+            classification = classify_res.json()
+        except json.JSONDecodeError:
+            st.error("⚠️ Classification function did not return valid JSON.")
+            st.code(classify_res.text)
+            st.stop()
+
+        if "error" in classification:
+            st.error("⚠️ GPT classification failed.")
+            if advanced_mode:
+                st.code(classification.get("raw_response", ""))
+            st.stop()
 
     # 🆕 Filter out empty chapters
     non_empty_chapters = [c for c in chapters if classification.get(c)]
