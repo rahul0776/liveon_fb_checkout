@@ -314,7 +314,7 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         eval_text = eval_res.text
     st.markdown("### 🧠 Personality Evaluation Summary"); st.markdown(eval_text)
 
-    # 🆕 Refined GPT prompt to avoid odd/empty chapters
+    # 🆕 Refined GPT p   rompt to avoid odd/empty chapters
     refined_question = """
     Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
 
@@ -370,6 +370,9 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         }, timeout=300)
 
         classification = classify_res.json()
+        if advanced_mode:
+            st.subheader("📦 Raw Classification Response")
+            st.json(classification)
 
     # 🆕 Filter out empty chapters
     non_empty_chapters = [c for c in chapters if classification.get(c)]
