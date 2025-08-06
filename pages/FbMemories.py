@@ -347,7 +347,12 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
     """
 
     # 2️⃣ Ask for chapter suggestions
+
     with st.spinner("📚 Generating scrapbook chapters from evaluation…"):
+        st.write("📤 Sending to followup function", {
+            "previous_answer": eval_text[:300],
+            "question": "Based on this evaluation, suggest thematic chapter titles..."
+        })
         followup_res = call_function("ask_followup_on_answer", {
             "previous_answer": eval_text,
             "question": """
