@@ -323,7 +323,7 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
     with st.spinner("🔍 Evaluating personality and life themes…"):
         try:
             st.write(f"🧪 Sending {len(posts)} posts to `ask_about_blob`")
-            st.write(f"Prompt preview:\n{eval_prompt[:500]}...")  # optional
+            # st.write(f"Prompt preview:\n{eval_prompt[:500]}...")  # optional
             eval_res = call_function("ask_about_blob", {
                 "question": eval_prompt,
                 "posts": posts
