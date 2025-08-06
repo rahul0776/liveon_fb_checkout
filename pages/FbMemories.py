@@ -24,6 +24,7 @@ def sign_blob_url(blob_path: str) -> str:
     except Exception as e:
         return "https://via.placeholder.com/600x400?text=Image+Unavailable"
 
+
 # 🆕 Normalize URLs to remove query params for deduplication
 def normalize_url(url: str) -> str:
     parsed = urlparse(url)
@@ -141,7 +142,17 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
         st.error(f"❌ Azure Function error: {err}")
         st.stop()
 
-
+if st.sidebar.button("🧪 Test ask_about_blob manually"):
+    debug_payload = {
+        "question": "Who is this person based on their Facebook posts?",
+        "posts": posts[:5]  # Send only first 5 posts to test
+    }
+    try:
+        res = call_function("ask_about_blob", debug_payload)
+        st.code(res.text)
+    except Exception as e:
+        st.error("❌ Azure Function test failed")
+        st.exception(e)
 # ── HELPERS ────────────────────────────────────────────────
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -310,8 +321,18 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
 
 
     with st.spinner("🔍 Evaluating personality and life themes…"):
-        eval_res  = call_function("ask_about_blob",{"question":eval_prompt,"posts":posts})
-        eval_text = eval_res.text
+        try:
+            st.write(f"🧪 Sending {len(posts)} posts to `ask_about_blob`")
+            st.write(f"Prompt preview:\n{eval_prompt[:500]}...")  # optional
+            eval_res = call_function("ask_about_blob", {
+                "question": eval_prompt,
+                "posts": posts
+            })
+            eval_text = eval_res.text
+        except Exception as e:
+            st.error("❌ Failed to get personality summary from Azure Function.")
+            st.exception(e)
+            st.stop()
     st.markdown("### 🧠 Personality Evaluation Summary"); st.markdown(eval_text)
 
     # 🆕 Refined GPT p   rompt to avoid odd/empty chapters
