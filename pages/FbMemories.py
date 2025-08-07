@@ -391,27 +391,35 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         
         # ── accept *all* HTTP image URLs (jpg/png/gif/webp) ─────────────────────────
 # ── Simplified image filter: grab full_picture (and fallback to picture) ─────────
+# ── Combined image filter ──────────────────────────────────────────────
         filtered_posts = []
         for p in posts:
-            imgs = []
-            fp = p.get("full_picture")
-            if isinstance(fp, str) and fp.startswith(("http://","https://")):
-                imgs.append(fp)
-            pic = p.get("picture")
-            if isinstance(pic, str) and pic.startswith(("http://","https://")):
-                imgs.append(pic)
+            # 1️⃣ If your posts+cap JSON already popped an 'images' list in load_all_posts:
+            imgs = p.get("images", []) or p.get("normalized_images", [])
+
+            # 2️⃣ Otherwise fall back to full_picture / picture
+            if not imgs:
+                fp = p.get("full_picture")
+                if isinstance(fp, str) and fp.startswith(("http://","https://")):
+                    imgs.append(fp)
+                pic = p.get("picture")
+                if isinstance(pic, str) and pic.startswith(("http://","https://")):
+                    imgs.append(pic)
+
+            # 3️⃣ Only keep posts with at least one HTTP image URL
             if imgs:
                 p["images"] = imgs
                 filtered_posts.append(p)
 
         if advanced_mode:
-            st.write(f"🧪 Filtered to {len(filtered_posts)} posts with images:", [
-                {"id": p["id"], "images": p["images"]} for p in filtered_posts
-            ])
+            st.write("🧪 Filtered to", len(filtered_posts), "posts with images:")
+            for p in filtered_posts:
+                st.write(f"• {p['id']} → {p['images']}")
 
         if not filtered_posts:
             st.error("❌ No valid HTTP-hosted images found. Cannot classify into chapters.")
             st.stop()
+
 
 
 
