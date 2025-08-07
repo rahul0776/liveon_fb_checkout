@@ -394,50 +394,50 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
 # ── Combined image filter ──────────────────────────────────────────────
 # ── Filter using normalized_images (strip query, check extensions) ────────────
 # ── Filter and sign both HTTP URLs and local blob paths ────────────────
-    filtered_posts = []
-    for p in posts:
-        candidates: list[str] = []
+        filtered_posts = []
+        for p in posts:
+            candidates: list[str] = []
 
-        # 1️⃣ if they gave us an HTTP CDN URL (full_picture), keep it
-        fp = p.get("full_picture")
-        if isinstance(fp, str) and fp.startswith(("http://", "https://")):
-            candidates.append(fp)
+            # 1️⃣ if they gave us an HTTP CDN URL (full_picture), keep it
+            fp = p.get("full_picture")
+            if isinstance(fp, str) and fp.startswith(("http://", "https://")):
+                candidates.append(fp)
 
-        # 2️⃣ if they gave us a local blob path (picture), sign it
-        pic = p.get("picture")
-        if isinstance(pic, str) and not pic.startswith(("http://", "https://")):
-            signed = sign_blob_url(pic)
-            # your sign_blob_url returns a proper HTTPS URL or placeholder
-            if signed.startswith("https://"):
-                candidates.append(signed)
+            # 2️⃣ if they gave us a local blob path (picture), sign it
+            pic = p.get("picture")
+            if isinstance(pic, str) and not pic.startswith(("http://", "https://")):
+                signed = sign_blob_url(pic)
+                # your sign_blob_url returns a proper HTTPS URL or placeholder
+                if signed.startswith("https://"):
+                    candidates.append(signed)
 
-        # 3️⃣ also pick up anything you already normalized
-        for img in p.get("normalized_images", []):
-            if isinstance(img, str) and img.startswith(("http://", "https://")):
-                candidates.append(img)
+            # 3️⃣ also pick up anything you already normalized
+            for img in p.get("normalized_images", []):
+                if isinstance(img, str) and img.startswith(("http://", "https://")):
+                    candidates.append(img)
 
-        # now dedupe and only keep real image file extensions
-        seen = set()
-        valid = []
-        for url in candidates:
-            base = url.split("?", 1)[0].lower()
-            if base.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")) and url not in seen:
-                seen.add(url)
-                valid.append(url)
+            # now dedupe and only keep real image file extensions
+            seen = set()
+            valid = []
+            for url in candidates:
+                base = url.split("?", 1)[0].lower()
+                if base.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")) and url not in seen:
+                    seen.add(url)
+                    valid.append(url)
 
-        if valid:
-            p["images"] = valid
-            filtered_posts.append(p)
+            if valid:
+                p["images"] = valid
+                filtered_posts.append(p)
 
-    # debug when you need it
-    if advanced_mode:
-        st.write(f"🧪 Filtered to {len(filtered_posts)} posts with images:")
-        for p in filtered_posts[:5]:
-            st.write(f"• {p['id']}: {p['images']}")
+        # debug when you need it
+        if advanced_mode:
+            st.write(f"🧪 Filtered to {len(filtered_posts)} posts with images:")
+            for p in filtered_posts[:5]:
+                st.write(f"• {p['id']}: {p['images']}")
 
-    if not filtered_posts:
-        st.error("❌ No valid images (HTTP or signed blobs) found. Cannot classify into chapters.")
-        st.stop()
+        if not filtered_posts:
+            st.error("❌ No valid images (HTTP or signed blobs) found. Cannot classify into chapters.")
+            st.stop()
 
 
 
