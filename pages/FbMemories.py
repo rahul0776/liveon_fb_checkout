@@ -390,25 +390,29 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         max_per_chapter = total_posts // chapters_count
         
         # ── accept *all* HTTP image URLs (jpg/png/gif/webp) ─────────────────────────
+# ── Simplified image filter: grab full_picture (and fallback to picture) ─────────
         filtered_posts = []
         for p in posts:
             imgs = []
-            # if there’s a full_picture URL, take it
             fp = p.get("full_picture")
             if isinstance(fp, str) and fp.startswith(("http://","https://")):
                 imgs.append(fp)
-            # fall back to the picture field too
             pic = p.get("picture")
             if isinstance(pic, str) and pic.startswith(("http://","https://")):
                 imgs.append(pic)
             if imgs:
-                # attach it as the 'images' list that the Function expects
                 p["images"] = imgs
                 filtered_posts.append(p)
 
+        if advanced_mode:
+            st.write(f"🧪 Filtered to {len(filtered_posts)} posts with images:", [
+                {"id": p["id"], "images": p["images"]} for p in filtered_posts
+            ])
+
         if not filtered_posts:
-            st.error("❌ No valid HTTP‐hosted images found. Cannot classify into chapters.")
+            st.error("❌ No valid HTTP-hosted images found. Cannot classify into chapters.")
             st.stop()
+
 
 
         # 🧠 Debug output
