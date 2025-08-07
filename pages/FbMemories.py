@@ -388,10 +388,26 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         total_posts = posts_per_page * target_pages
         chapters_count = len(chapters)
         max_per_chapter = total_posts // chapters_count
+        filtered_posts = []
+        for p in posts:
+            imgs = p.get("images", []) or p.get("normalized_images", []) or []
+            valid_imgs = [img for img in imgs if "blob.core.windows.net" in img]
+            if valid_imgs:
+                p["images"] = valid_imgs  # Ensure it's populated
+                filtered_posts.append(p)
 
+        if not filtered_posts:
+            st.error("❌ No valid posts with blob image URLs found. Cannot classify into chapters.")
+            st.stop()
+
+        # 🧠 Debug output
+        if advanced_mode:
+            st.write(f"🧪 Filtered to {len(filtered_posts)} posts with blob image URLs")
+
+        # Call Azure Function
         classify_res = call_function("embed_classify_posts_into_chapters", {
             "chapters": chapters,
-            "posts": posts,
+            "posts": filtered_posts,
             "max_per_chapter": max_per_chapter
         }, timeout=300)
 
