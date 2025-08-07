@@ -388,13 +388,39 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         total_posts = posts_per_page * target_pages
         chapters_count = len(chapters)
         max_per_chapter = total_posts // chapters_count
+        
         filtered_posts = []
         for p in posts:
             imgs = p.get("images", []) or p.get("normalized_images", []) or []
-            valid_imgs = [img for img in imgs if "blob.core.windows.net" in img]
-            if valid_imgs:
-                p["images"] = valid_imgs  # Ensure it's populated
+            signed_imgs = []
+
+            for img in imgs:
+                if "blob.core.windows.net" in img and "?" in img:
+                    # Already signed
+                    signed_imgs.append(img)
+                elif "blob.core.windows.net" in img:
+                    # Needs signing
+                    try:
+                        # Extract path after container
+                        parsed = urlparse(img)
+                        blob_path = parsed.path.split(f"/{CONTAINER}/")[-1]
+                        signed_img = sign_blob_url(blob_path)
+                        signed_imgs.append(signed_img)
+                    except:
+                        continue
+                elif not img.startswith("http"):
+                    # It's a raw blob path
+                    try:
+                        signed_imgs.append(sign_blob_url(img))
+                    except:
+                        continue
+
+            if signed_imgs:
+                p["images"] = signed_imgs
                 filtered_posts.append(p)
+
+        if advanced_mode:
+            st.code(json.dumps(filtered_posts[:2], indent=2))
 
         if not filtered_posts:
             st.error("❌ No valid posts with blob image URLs found. Cannot classify into chapters.")
