@@ -392,22 +392,22 @@ if st.button("📘 Generate Scrapbook",use_container_width=True):
         # ── accept *all* HTTP image URLs (jpg/png/gif/webp) ─────────────────────────
         filtered_posts = []
         for p in posts:
-            # your loader put full_picture/picture into normalized_images
-            imgs = p.get("normalized_images", [])
-            valid_imgs = [
-                img for img in imgs
-                if isinstance(img, str)
-                and img.lower().startswith(("http://","https://"))
-                and img.split("?",1)[0].lower().endswith((
-                    ".jpg", ".jpeg", ".png", ".gif", ".webp"
-                ))
-            ]
-            if valid_imgs:
-                p["images"] = valid_imgs
+            imgs = []
+            # if there’s a full_picture URL, take it
+            fp = p.get("full_picture")
+            if isinstance(fp, str) and fp.startswith(("http://","https://")):
+                imgs.append(fp)
+            # fall back to the picture field too
+            pic = p.get("picture")
+            if isinstance(pic, str) and pic.startswith(("http://","https://")):
+                imgs.append(pic)
+            if imgs:
+                # attach it as the 'images' list that the Function expects
+                p["images"] = imgs
                 filtered_posts.append(p)
 
         if not filtered_posts:
-            st.error("❌ No valid HTTP-hosted images found. Cannot classify into chapters.")
+            st.error("❌ No valid HTTP‐hosted images found. Cannot classify into chapters.")
             st.stop()
 
 
