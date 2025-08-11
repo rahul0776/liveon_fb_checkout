@@ -115,15 +115,11 @@ def dense_caption(img_path):
         r.raise_for_status()
         result = r.json()
 
-        caption = result.get("description", {}).get("captions", [{}])[0].get("text", "")
-        tags = result.get("description", {}).get("tags", [])
-        objects = [obj.get("object", "") for obj in result.get("objects", [])]
+        result = r.json()
 
-        context_caption = caption
-        if tags:
-            context_caption += ". Tags: " + ", ".join(tags)
-        if objects:
-            context_caption += ". Objects: " + ", ".join(objects)
+        # ✅ Only the plain caption (no tags/objects)
+        caption = result.get("description", {}).get("captions", [{}])[0].get("text", "")
+        return caption or ""
 
         return context_caption
 
@@ -505,7 +501,9 @@ if st.button("⬇️ Start My Backup"):
                 with cols[i]:
                     if img_url:
                         st.image(img_url, use_container_width=True)
-                        st.caption(post.get("context_caption", "No caption available"))
+                        desc = post.get("message") or post.get("context_caption") or ""
+                        if desc:
+                            st.caption(desc)
                     else:
                         st.warning("No valid image available for this post.")
 
