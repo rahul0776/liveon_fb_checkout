@@ -5,8 +5,6 @@ from pathlib import Path
 from azure.storage.blob import BlobServiceClient
 from urllib.parse import quote_plus
 import random
-import stat, time
-
 # ── Config & Styles ────────────────────────────────
 st.set_page_config(
     page_title="LiveOn · New Backup",
@@ -87,23 +85,17 @@ def upload_folder(BACKUP_DIR, blob_prefix):
             with open(local_path, "rb") as f:
                 container.get_blob_client(blob_path).upload_blob(f, overwrite=True)
 def download_image(url, name_id):
+    #ext = url.split(".")[-1].split("?")[0]
     ext = url.split(".")[-1].split("?")[0]
-    if len(ext) > 5 or "/" in ext:
+    if len(ext) > 5 or "/" in ext:  # fallback if invalid
         ext = "jpg"
 
     fname = f"{name_id}.{ext}"
     local_path = IMG_DIR / fname
-
     r = requests.get(url, stream=True, timeout=10)
-    try:
-        if r.status_code == 200:
-            with open(local_path, 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
-        else:
-            raise Exception(f"Image download failed: {r.status_code}")
-    finally:
-        r.close()  # ✅ Make sure the request is closed!
-
+    if r.status_code == 200:
+        with open(local_path, 'wb') as f: shutil.copyfileobj(r.raw, f)
+    else: raise Exception(f"Image download failed: {r.status_code}")
     return str(local_path)
 
 def generate_blob_url(folder_prefix: str, image_name: str) -> str:
@@ -266,7 +258,7 @@ if editing_folder:
         save_json({"comments": []}, "comments.json")  # Replace with actual comments if you fetch them
         save_json({"likes": []}, "likes.json")        # Replace with actual likes if you fetch them
         save_json({"videos": []}, "videos.json")      # Replace with actual videos if available
-        save_json({"profile": {"name": fb_name, "id": fb_id,"profile_picture_url": profile.get("picture", {}).get("data", {}).get("url")}}, "profile.json")
+        save_json({"profile": {"name": fb_name, "id": fb_id}}, "profile.json")
         st.write("✅ profile.json saved:", (BACKUP_DIR / "profile.json").exists())
 
 
@@ -429,18 +421,7 @@ if st.button("⬇️ Start My Backup"):
     bar.empty()
 
     # Clean local backup folder for next use
-    def remove_readonly(func, path, _):
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-
-    # Retry deletion up to 3 times in case Windows is still locking files
-    for _ in range(3):
-        try:
-            shutil.rmtree(BACKUP_DIR, onerror=remove_readonly)
-            break
-        except PermissionError:
-            time.sleep(1)  # Wait before retry
-
+    shutil.rmtree(BACKUP_DIR)
     BACKUP_DIR.mkdir(exist_ok=True)
     IMG_DIR.mkdir(exist_ok=True)
 
@@ -467,13 +448,13 @@ if st.button("⬇️ Start My Backup"):
     st.session_state["latest_backup"] = latest_backup
     st.session_state["redirect_to_backups"] = True
     st.session_state["force_reload"] = True
-
     # ✅ After backup complete
     st.success("✅ Backup complete! 🎉 Your scrapbook is ready to preview!")
 
-    # 📖 Show scrapbook demo preview
+    # 📖 Show scrapbook demo preview (sample of posts)
     image_posts = [p for p in posts if p.get("picture") or p.get("images")]
     if image_posts:
+        # 🔗 Your Azure Function that selects/embeds posts into chapters
         FUNCTION_URL = "https://liveon-func-app3.azurewebsites.net/api/embed_classify_posts_into_chapters"
 
         chapters = ["Family & Friends", "Travel", "Work Achievements", "Celebrations", "Milestones"]
@@ -486,17 +467,17 @@ if st.button("⬇️ Start My Backup"):
             )
             if res.status_code == 200:
                 chapter_posts = res.json()
-                # Flatten the selected posts
+                # Flatten selected posts from chapters
                 sample_posts = []
                 for chap in chapter_posts.values():
                     sample_posts.extend(chap)
-                # Remove duplicates & limit to 5
-                seen_ids = set()
-                final_posts = []
+                # De-dup and limit to 5
+                seen_ids, final_posts = set(), []
                 for p in sample_posts:
-                    if p.get("id") not in seen_ids:
+                    pid = p.get("id")
+                    if pid and pid not in seen_ids:
                         final_posts.append(p)
-                        seen_ids.add(p.get("id"))
+                        seen_ids.add(pid)
                 sample_posts = final_posts[:5]
             else:
                 st.warning("Fallback to random posts because function call failed.")
@@ -505,11 +486,10 @@ if st.button("⬇️ Start My Backup"):
             st.error(f"Function call failed: {e}")
             sample_posts = random.sample(image_posts, min(5, len(image_posts)))
 
-
         st.subheader("📖 Here's a glimpse of your scrapbook:")
 
-
-        for row_start in range(0, len(sample_posts), 3):  # 3 images per row
+        # 3 images per row
+        for row_start in range(0, len(sample_posts), 3):
             row_posts = sample_posts[row_start:row_start+3]
             cols = st.columns(len(row_posts))
 
@@ -522,27 +502,24 @@ if st.button("⬇️ Start My Backup"):
                     if isinstance(first_img, str) and first_img.startswith("http"):
                         img_url = first_img
 
-                if img_url:
-                    with cols[i]:
-                        st.image(img_url, use_container_width=True)  # ✅ updated parameter
+                with cols[i]:
+                    if img_url:
+                        st.image(img_url, use_container_width=True)
                         st.caption(post.get("context_caption", "No caption available"))
-                else:
-                    with cols[i]:
+                    else:
                         st.warning("No valid image available for this post.")
 
-    # ✅ Give user options for next step
+    # ✅ Next actions
     st.markdown("---")
     st.info("What would you like to do next?")
 
     col1, col2 = st.columns(2)
-
     with col1:
         if st.button("💳 Proceed to Payment"):
-            st.switch_page("pages/FB_Backup.py")  # payment page
+            st.switch_page("pages/FB_Backup.py")  # your payment page
 
     with col2:
         if st.button("← Back to My Projects"):
             st.switch_page("pages/FbeMyProjects.py")
-
 
     st.markdown('</div>', unsafe_allow_html=True)
