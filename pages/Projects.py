@@ -10,7 +10,7 @@ from azure.storage.blob import BlobServiceClient
 import requests  # ✅ Needed for Facebook Graph API calls
 import hashlib  # ✅ Added for hashing fb_token for safe filenames
 from pathlib import Path
-DEBUG = bool(st.secrets.get("DEBUG", False))
+DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
     layout="wide",
@@ -100,7 +100,7 @@ if st.session_state.get("redirect_to_projects", False) or st.session_state.get("
                     projects.append(proj)
 
     except Exception as e:
-        st.warning(f"⚠️ Could not refresh projects: {e}")  # 👈 Friendlier warning
+        if DEBUG: st.warning(f"⚠️ Could not refresh projects: {e}")
 
 
 
@@ -135,7 +135,7 @@ else:
 query_params = st.query_params
 if "edit_duration" in query_params:
     folder_name = query_params["edit_duration"][0]
-    st.warning(f"Editing folder passed from dashboard: {folder_name}")  # 🔥 DEBUG
+    if DEBUG: st.info(f"Editing folder passed from dashboard: {folder_name}")
     if folder_name and folder_name != "f":  # ✅ Prevent invalid folder names
         st.session_state["editing_backup_folder"] = folder_name
         st.switch_page("pages/FbFullProfile.py")
@@ -367,8 +367,7 @@ if blob_service_client:
                                         "raw_date": created_date
                                     })
                             except Exception as e:
-                                st.warning(f"⚠️ Error reading backup in {blob.name}: {e}")
-
+                                if DEBUG: st.warning(f"⚠️ Error reading backup in {blob.name}: {e}")
             
             # Process each folder
             for backup in backups:
@@ -394,7 +393,7 @@ if blob_service_client:
                                     "raw_date": created_date
                                 })
                 except Exception as e:
-                    st.warning(f"⚠️ Error processing backup {backup['id']}: {str(e)}")
+                    if DEBUG: st.warning(f"⚠️ Error processing backup {backup['id']}: {str(e)}")
                     continue
 
         # Sort backups by date (newest first)
@@ -425,7 +424,7 @@ try:
             if not any(p["id"] == proj["id"] for p in projects):
                 projects.append(proj)
     else:
-        st.warning("No projects metadata found in Azure.")
+        if DEBUG: st.info("No projects metadata found in Azure.")
 except Exception as e:
     st.error(f"❌ Error loading projects from Azure: {e}")
 
@@ -434,7 +433,7 @@ except Exception as e:
 # Handle new backup if redirected
 if st.session_state.pop("new_backup_done", False):
     latest = st.session_state.pop("latest_backup", None)
-    st.warning(f"✅ Attempting to add new backup: {latest}")  # ✅ Now it's defined
+    if DEBUG: st.info(f"✅ Attempting to add new backup: {latest}")
     if latest and str(latest.get("user_id")).strip() == str(st.session_state["fb_id"]).strip():
         folder = latest.get("Folder").rstrip("/").lower()
         if blob_service_client:
@@ -454,9 +453,9 @@ if st.session_state.pop("new_backup_done", False):
                             "raw_date": datetime.now()
                         }
                     )
-                    st.warning(f"✅ Added session backup: {folder}")  # DEBUG
+                    if DEBUG: st.info(f"✅ Added session backup: {folder}")
             else:
-                st.warning(f"🚫 Skipped session backup (missing files): {folder}")  # DEBUG
+                if DEBUG: st.info(f"🚫 Skipped session backup (missing files): {folder}")
 # ─── Handle new project creation ────────────────────────
 # 🚀 Always load latest projects from Azure
 try:
