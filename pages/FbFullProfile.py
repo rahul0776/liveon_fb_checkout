@@ -15,83 +15,86 @@ st.set_page_config(
 st.markdown("""
 <style>
 :root{
-  --navy-900:#0F253D;     /* deep background */
-  --navy-800:#143150;
-  --navy-700:#1E3A5F;
-  --navy-500:#2F5A83;
-  --gold:#F6C35D;         /* brand accent */
-  --text:#F3F6FA;         /* off-white text */
-  --muted:#B9C6D6;        /* secondary text */
-  --card:#112A45;         /* card background */
-  --line:rgba(255,255,255,.14);
+  --navy:#0F253D;           /* header text */
+  --navy-2:#12304B;         /* buttons text on gold */
+  --ink:#1A2B3A;            /* body text */
+  --bg:#F6FAFF;             /* page light */
+  --cream:#FFF6E8;          /* “free trial” bg */
+  --gold:#F6C35D;           /* accent */
+  --muted:#5E738A;
+  --line:#E8EEF5;
 }
 
 /* Page base */
 html, body, .stApp{
-  background: linear-gradient(180deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-700) 100%);
-  color: var(--text);
+  background: var(--bg);
+  color: var(--ink);
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Top bar */
 .topbar{
   display:flex;justify-content:space-between;align-items:center;
-  background: rgba(255,255,255,.04);
-  padding:12px 24px;border-bottom:1px solid var(--line);
-  font-size:15px;position:sticky;top:0;z-index:998;color:var(--text);
+  background: #fff;
+  padding:12px 24px;
+  border-bottom:1px solid var(--line);
+  font-size:15px;position:sticky;top:0;z-index:998;color:var(--navy);
 }
-.topbar a{color:var(--gold);font-weight:700;text-decoration:none;}
-.topbar a:hover{filter:brightness(.95);}
+.topbar a{color:var(--navy);font-weight:700;text-decoration:none;}
+.topbar a:hover{opacity:0.85;}
 
 /* Cards */
 .card{
-  background: var(--card);
+  background: #fff;
   border:1px solid var(--line);
   border-radius:12px;
-  box-shadow:0 10px 24px rgba(0,0,0,.18);
-  max-width:720px;           /* a little wider looks better */
+  box-shadow:0 4px 14px rgba(0,0,0,.05);
+  max-width:720px;
   margin:40px auto;
   padding:34px 32px;
 }
 
 /* Headings */
 h1,h2,h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
-  color:var(--text) !important;
+  color:var(--navy) !important;
   letter-spacing:.25px;
 }
 
 /* Primary buttons */
 .stButton>button{
   background: var(--gold);
-  color: var(--navy-900);
+  color: var(--navy-2);
   border:none;
   padding:12px 0;
   border-radius:10px;
   font-weight:800;
   font-size:15px;
   width:100%;
-  box-shadow:0 4px 14px rgba(246,195,93,.22);
+  box-shadow:0 4px 14px rgba(246,195,93,.25);
   transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
 }
 .stButton>button:hover{
   transform: translateY(-1px);
-  filter:brightness(.95);
-  box-shadow:0 6px 18px rgba(246,195,93,.28);
+  filter:brightness(.97);
+  box-shadow:0 6px 18px rgba(246,195,93,.3);
 }
 
 /* Instructions callout */
 .instructions{
-  background: rgba(255,255,255,.06);
+  background: var(--cream);
   border-left:4px solid var(--gold);
-  padding:12px 16px;margin:16px 0;font-size:14px;color:var(--muted);
+  padding:12px 16px;
+  margin:16px 0;
+  font-size:14px;
+  color:var(--ink);
 }
 
-/* Alerts that blend with dark theme */
+/* Alerts */
 div[data-testid="stAlert"]{
   font-weight:600;border-left:4px solid var(--gold) !important;
-  background: rgba(255,255,255,.06) !important;color:var(--text) !important;
+  background: #fff !important;color:var(--ink) !important;
 }
-div[data-testid="stAlert"] * {color:var(--text) !important;}
+div[data-testid="stAlert"] * {color:var(--ink) !important;}
 div[data-testid="stAlert"]:has(svg[data-testid="stIcon-success"]){ border-left-color:#45d07e !important;}
 div[data-testid="stAlert"]:has(svg[data-testid="stIcon-warning"]){ border-left-color:#ffcf66 !important;}
 div[data-testid="stAlert"]:has(svg[data-testid="stIcon-error"]){ border-left-color:#ff6b6b !important;}
@@ -99,16 +102,17 @@ div[data-testid="stAlert"]:has(svg[data-testid="stIcon-error"]){ border-left-col
 /* Progress bar in gold */
 .stProgress [role="progressbar"] > div{ background: var(--gold) !important; }
 
-/* Inputs on dark bg (date inputs, text, etc.) */
+/* Inputs on light bg */
 input, textarea, select{
-  background: rgba(255,255,255,.06) !important;
+  background: #fff !important;
   border:1px solid var(--line) !important;
-  color: var(--text) !important;
+  color: var(--ink) !important;
   border-radius:10px !important;
 }
 label, .stMarkdown, .stCaption, .st-emotion-cache-1n76uvr{ color: var(--muted) !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 st.markdown('<div class="topbar"><div><strong>LiveOn</strong> · Backup&nbsp;Process</div>'
             '<a href="/FbeMyProjects?tab=backups" target="_self">⇦ Back to Dashboard</a></div>', 
