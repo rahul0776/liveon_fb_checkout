@@ -10,6 +10,7 @@ from azure.storage.blob import BlobServiceClient
 import requests  # ✅ Needed for Facebook Graph API calls
 import hashlib  # ✅ Added for hashing fb_token for safe filenames
 from pathlib import Path
+DEBUG = bool(st.secrets.get("DEBUG", False))
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
     layout="wide",
@@ -47,9 +48,11 @@ def restore_session():
             
 
 restore_session()
-st.warning(f"🧠 Session loaded: fb_id={st.session_state.get('fb_id')}")
-st.warning(f"🧠 latest_backup={st.session_state.get('latest_backup')}")
-st.warning(f"🧠 new_backup_done={st.session_state.get('new_backup_done')}")
+
+if DEBUG:
+    st.warning(f"🧠 Session loaded: fb_id={st.session_state.get('fb_id')}")
+    st.warning(f"🧠 latest_backup={st.session_state.get('latest_backup')}")
+    st.warning(f"🧠 new_backup_done={st.session_state.get('new_backup_done')}")
 
 if st.session_state.pop("force_reload", False):  # 👈 ADD THIS
     st.rerun()  # ✅ For Streamlit >=1.30, use st.rerun
@@ -66,6 +69,9 @@ def get_blob_service_client():
     if AZ_CONN:
         return BlobServiceClient.from_connection_string(AZ_CONN)
     return None
+if get_blob_service_client() is None:
+    st.error("Missing AZURE_CONNECTION_STRING in Secrets. Set it in Streamlit Cloud → Settings → Secrets.")
+    st.stop()
 
 # Set up Azure container client
 blob_service_client = get_blob_service_client()
@@ -300,20 +306,17 @@ st.markdown(f"""
     </div>
     <div class="user-badge">
         <div class="avatar">
-            {fb_name[0].upper() if fb_name else "U"}
+            {(fb_name or 'User')[0].upper()}
         </div>
         <div>
             <div style="font-weight: 600;">{fb_name}</div>
             <div style="font-size: 0.8em; color: #6c757d;">Account active</div>
         </div>
-        <button onclick="window.location.href='/FacebookLogin'" style="
-            background: none;
-            border: none;
-            color: #6c757d;
-            cursor: pointer;
-            padding: 8px;
-            border-radius: 8px;
-        ">
+        st.markdown("</div>", unsafe_allow_html=True)  # close the header HTML above
+        colA, _ = st.columns([1, 9])
+        with colA:
+            if st.button("🔑 Login / Switch account"):
+                st.switch_page("LiveOn.py")
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                 <polyline points="16 17 21 12 16 7"></polyline>
@@ -331,7 +334,7 @@ backups = []
 if blob_service_client:
     try:
         container_client = blob_service_client.get_container_client("backup")
-        blobs = list(container_client.list_blobs())
+        blobs = list(container_client.list_blobs(name_starts_with=f"{st.session_state['fb_id']}/"))
         
         # Process backups with progress indicator
         # 🆕 Process user-specific backups
