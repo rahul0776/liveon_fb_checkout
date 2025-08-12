@@ -9,8 +9,12 @@ import streamlit as st
 from PIL import Image
 
 # ── Page config ─────────────────────────────────────────────
-st.set_page_config(page_title="LiveOn Fb", page_icon="📘", layout="wide")
-
+st.set_page_config(
+    page_title="LiveOn Fb",
+    page_icon="📘",
+    layout="wide",
+    initial_sidebar_state="collapsed"   
+)
 # ── Settings ────────────────────────────────────────────────
 TIMEOUT = 10
 DEST_PAGE = "pages/Projects.py"  # keep consistent across the app
@@ -116,11 +120,11 @@ except Exception:
 st.markdown("### Explore Facebook Post & Page Data Instantly")
 
 # Sidebar token status (non-sensitive)
-with st.sidebar:
-    if "fb_token" in st.session_state:
-        st.success("🔐 Facebook Token: Stored ✅")
-    else:
-        st.warning("🔐 Facebook Token: Missing")
+# with st.sidebar:
+#     if "fb_token" in st.session_state:
+#         st.success("🔐 Facebook Token: Stored ✅")
+#     else:
+#         st.warning("🔐 Facebook Token: Missing")
 
 # ── Query param helpers ─────────────────────────────────────
 def get_qparam(name: str) -> str | None:
