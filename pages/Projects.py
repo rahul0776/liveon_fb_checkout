@@ -312,11 +312,14 @@ st.markdown(f"""
             <div style="font-weight: 600;">{fb_name}</div>
             <div style="font-size: 0.8em; color: #6c757d;">Account active</div>
         </div>
-        st.markdown("</div>", unsafe_allow_html=True)  # close the header HTML above
-        colA, _ = st.columns([1, 9])
-        with colA:
-            if st.button("🔑 Login / Switch account"):
-                st.switch_page("LiveOn.py")
+        <button onclick="window.location.href='/FacebookLogin'" style="
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 8px;
+        ">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                 <polyline points="16 17 21 12 16 7"></polyline>
