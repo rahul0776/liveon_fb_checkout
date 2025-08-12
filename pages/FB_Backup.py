@@ -12,8 +12,14 @@ st.set_page_config(
 )
 
 # Optional: your global theme (won't change behavior)
-from utils.theme import inject_global_styles
-inject_global_styles()
+try:
+    from utils.theme import inject_global_styles
+except ModuleNotFoundError:
+    inject_global_styles = None
+
+if inject_global_styles:
+    inject_global_styles()
+
 
 # ----------------- Helpers -----------------
 def _get_secret(name: str, default: str | None = None) -> str | None:
