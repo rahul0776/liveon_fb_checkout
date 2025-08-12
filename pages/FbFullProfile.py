@@ -14,25 +14,102 @@ st.set_page_config(
 )
 st.markdown("""
 <style>
-html,body,.stApp{background:#fafbfc;color:#131517;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto;}
-.topbar{display:flex;justify-content:space-between;align-items:center;background:#f0f2f5;
-        padding:12px 24px;border-bottom:1px solid #E1E4E8;font-size:15px;position:sticky;top:0;z-index:998;}
-.topbar a{color:#1877f2;font-weight:600;text-decoration:none;}
-.card{background:#fff;border:1px solid #E1E4E8;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.05);
-      max-width:520px;margin:40px auto;padding:34px 32px;}
-.stButton>button{background:#1877f2;border:none;color:#fff;padding:12px 0;border-radius:6px;font-weight:600;font-size:15px;width:100%;}
-.stButton>button:hover{background:#0f5bb5;}
-.instructions {background:#f8f9fa;border-left:4px solid #1877f2;padding:12px 16px;margin:16px 0;font-size:14px;}
-div[data-testid="stAlert"] {font-weight:600;border-left:4px solid #1877f2 !important;background:#e7f0fa !important;}
-div[data-testid="stAlert"] * {color:#131517 !important;}
-div[data-testid="stAlert"]:has(svg[data-testid="stIcon-success"]) {
-    border-left-color:#28a745 !important;background:#d4edda !important;}
-div[data-testid="stAlert"]:has(svg[data-testid="stIcon-warning"]) {
-    border-left-color:#ffc107 !important;background:#fff3cd !important;}
-div[data-testid="stAlert"]:has(svg[data-testid="stIcon-error"]) {
-    border-left-color:#dc3545 !important;background:#f8d7da !important;}
+:root{
+  --navy-900:#0F253D;     /* deep background */
+  --navy-800:#143150;
+  --navy-700:#1E3A5F;
+  --navy-500:#2F5A83;
+  --gold:#F6C35D;         /* brand accent */
+  --text:#F3F6FA;         /* off-white text */
+  --muted:#B9C6D6;        /* secondary text */
+  --card:#112A45;         /* card background */
+  --line:rgba(255,255,255,.14);
+}
+
+/* Page base */
+html, body, .stApp{
+  background: linear-gradient(180deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-700) 100%);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Top bar */
+.topbar{
+  display:flex;justify-content:space-between;align-items:center;
+  background: rgba(255,255,255,.04);
+  padding:12px 24px;border-bottom:1px solid var(--line);
+  font-size:15px;position:sticky;top:0;z-index:998;color:var(--text);
+}
+.topbar a{color:var(--gold);font-weight:700;text-decoration:none;}
+.topbar a:hover{filter:brightness(.95);}
+
+/* Cards */
+.card{
+  background: var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  box-shadow:0 10px 24px rgba(0,0,0,.18);
+  max-width:720px;           /* a little wider looks better */
+  margin:40px auto;
+  padding:34px 32px;
+}
+
+/* Headings */
+h1,h2,h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
+  color:var(--text) !important;
+  letter-spacing:.25px;
+}
+
+/* Primary buttons */
+.stButton>button{
+  background: var(--gold);
+  color: var(--navy-900);
+  border:none;
+  padding:12px 0;
+  border-radius:10px;
+  font-weight:800;
+  font-size:15px;
+  width:100%;
+  box-shadow:0 4px 14px rgba(246,195,93,.22);
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+}
+.stButton>button:hover{
+  transform: translateY(-1px);
+  filter:brightness(.95);
+  box-shadow:0 6px 18px rgba(246,195,93,.28);
+}
+
+/* Instructions callout */
+.instructions{
+  background: rgba(255,255,255,.06);
+  border-left:4px solid var(--gold);
+  padding:12px 16px;margin:16px 0;font-size:14px;color:var(--muted);
+}
+
+/* Alerts that blend with dark theme */
+div[data-testid="stAlert"]{
+  font-weight:600;border-left:4px solid var(--gold) !important;
+  background: rgba(255,255,255,.06) !important;color:var(--text) !important;
+}
+div[data-testid="stAlert"] * {color:var(--text) !important;}
+div[data-testid="stAlert"]:has(svg[data-testid="stIcon-success"]){ border-left-color:#45d07e !important;}
+div[data-testid="stAlert"]:has(svg[data-testid="stIcon-warning"]){ border-left-color:#ffcf66 !important;}
+div[data-testid="stAlert"]:has(svg[data-testid="stIcon-error"]){ border-left-color:#ff6b6b !important;}
+
+/* Progress bar in gold */
+.stProgress [role="progressbar"] > div{ background: var(--gold) !important; }
+
+/* Inputs on dark bg (date inputs, text, etc.) */
+input, textarea, select{
+  background: rgba(255,255,255,.06) !important;
+  border:1px solid var(--line) !important;
+  color: var(--text) !important;
+  border-radius:10px !important;
+}
+label, .stMarkdown, .stCaption, .st-emotion-cache-1n76uvr{ color: var(--muted) !important; }
 </style>
 """, unsafe_allow_html=True)
+
 st.markdown('<div class="topbar"><div><strong>LiveOn</strong> · Backup&nbsp;Process</div>'
             '<a href="/FbeMyProjects?tab=backups" target="_self">⇦ Back to Dashboard</a></div>', 
             unsafe_allow_html=True)
