@@ -13,8 +13,9 @@ st.set_page_config(
     page_title="LiveOn Fb",
     page_icon="📘",
     layout="wide",
-    initial_sidebar_state="collapsed"   
+    initial_sidebar_state="collapsed"
 )
+
 # ── Settings ────────────────────────────────────────────────
 TIMEOUT = 10
 DEST_PAGE = "pages/Projects.py"  # keep consistent across the app
@@ -78,24 +79,95 @@ def get_image_base64(path: str) -> str | None:
         dev(f"Image load failed for {path}: {e}")
         return None
 
-# ── CSS + Header ───────────────────────────────────────────
+# ── UI THEME (navy + gold, Minedco-style) ──────────────────
 st.markdown("""
 <style>
-.main { background-color: #0e1117; }
-h1, h3, .stMarkdown { text-align: center; color: white; }
-.header-container { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 1rem; }
-.header-container img { width: 60px; }
-.navbar { display: flex; justify-content: space-between; align-items: center; padding: 1.2rem 2rem; background-color: #fdfdfd;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.05); margin-bottom: 3rem; border-bottom: 1px solid #ddd; }
-.navbar a { margin-left: 1.5rem; text-decoration: none; color: #222; font-weight: 500; }
-.hero-box { text-align: center; max-width: 480px; margin: 0 auto; padding: 3rem 2rem; background: #fff; border-radius: 16px;
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08); }
-.hero-box h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: 1.2rem; color: #111; }
-.hero-box p { font-size: 1.05rem; color: #333; margin-bottom: 2rem; }
-.fb-button { background-color: #1877f2; color: white; padding: 12px 24px; font-size: 17px; font-weight: 600; border: none;
-             border-radius: 6px; text-decoration: none; display: inline-block; }
-.fb-button:hover { background-color: #155edb; }
-.subtext { font-size: 0.95rem; margin-top: 1rem; color: #444; }
+:root{
+  --navy-900:#0F253D;     /* deep background */
+  --navy-800:#143150;
+  --navy-700:#1E3A5F;     /* headers / hover */
+  --navy-500:#2F5A83;     /* accents */
+  --gold:#F6C35D;         /* brand accent */
+  --text:#F3F6FA;         /* off-white */
+  --muted:#B9C6D6;        /* secondary text */
+  --card:#112A45;         /* card bg */
+  --line:rgba(255,255,255,.14);
+}
+
+/* Page */
+html, body, .stApp{
+  background: linear-gradient(180deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-700) 100%);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Headings */
+h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
+  color: var(--text) !important;
+  letter-spacing:.25px;
+  text-align:center;
+}
+
+/* Header brand row (logo + title) */
+.header-container{
+  display:flex; align-items:center; justify-content:center; gap:12px;
+  margin: 8px 0 12px 0;
+}
+.header-container img{
+  width:56px; height:auto; filter: drop-shadow(0 2px 8px rgba(0,0,0,.25));
+}
+.header-title{
+  font-weight:800; font-size: 34px; line-height:1;
+}
+.header-title .accent{ color: var(--gold); }
+
+/* Hero card */
+.hero-box{
+  text-align:center; max-width:560px; margin: 0 auto;
+  padding: 2.4rem 2rem;
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+}
+.hero-box h1{
+  font-size: 2.2rem; font-weight: 800; margin-bottom:.6rem;
+}
+.hero-box p{
+  font-size: 1.05rem; color: var(--muted); margin-bottom: 1.6rem;
+}
+
+/* Primary CTA (gold like site) */
+.fb-button{
+  background: var(--gold);
+  color: var(--navy-900); font-weight:800; font-size:17px;
+  padding: 12px 24px; border-radius: 8px; text-decoration:none; display:inline-block;
+  border: none; box-shadow: 0 4px 14px rgba(246,195,93,.22);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+.fb-button:hover{
+  filter: brightness(.95);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(246,195,93,.28);
+}
+
+/* Small subtext */
+.subtext{ font-size:.95rem; margin-top:.9rem; color: var(--muted); }
+
+/* Optional navbar look if you add one later */
+.navbar{
+  display:flex; justify-content:space-between; align-items:center;
+  padding: 1rem 2rem; background: rgba(255,255,255,.04);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 6px rgba(0,0,0,.12);
+}
+.navbar a{ color: var(--text); text-decoration:none; margin-left:1.2rem; }
+.navbar a:hover{ color: var(--gold); }
+
+/* Streamlit alerts blending with theme */
+div[data-testid="stAlert"]{
+  border:1px solid var(--line); background: rgba(255,255,255,.06);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -104,12 +176,12 @@ logo_b64 = get_image_base64("media/logo.png")
 if logo_b64:
     st.markdown(f"""
         <div class="header-container">
-            <img src="data:image/png;base64,{logo_b64}" />
-            <h1>LiveOn Fb</h1>
+            <img src="data:image/png;base64,{logo_b64}" alt="Logo" />
+            <div class="header-title">LiveOn <span class="accent">Fb</span></div>
         </div>
     """, unsafe_allow_html=True)
 else:
-    st.markdown('<h1 style="text-align:center;color:white;">LiveOn Fb</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="header-title">LiveOn <span class="accent">Fb</span></h1>', unsafe_allow_html=True)
 
 try:
     banner = Image.open("media/banner.png")
@@ -119,33 +191,23 @@ except Exception:
 
 st.markdown("### Explore Facebook Post & Page Data Instantly")
 
-# Sidebar token status (non-sensitive)
-# with st.sidebar:
-#     if "fb_token" in st.session_state:
-#         st.success("🔐 Facebook Token: Stored ✅")
-#     else:
-#         st.warning("🔐 Facebook Token: Missing")
-
 # ── Query param helpers ─────────────────────────────────────
 def get_qparam(name: str) -> str | None:
     qp = st.query_params
     if name not in qp:
         return None
     v = qp.get(name)
-    # st.query_params can return str or list[str]
     return v[0] if isinstance(v, list) else v
 
-# ── Main Login Logic ───────────────────────────────────────
+# ── Main Login Logic (unchanged) ───────────────────────────
 error = get_qparam("error")
 error_desc = get_qparam("error_description")
 code = get_qparam("code")
 returned_state = get_qparam("state")
 
 if error:
-    # User cancelled or FB returned an error
     st.error("Facebook login was not completed. Please try again.")
     dev(f"FB error: {error} - {error_desc}")
-    # Clear error params so refresh is clean
     st.query_params.clear()
 
 elif code:
@@ -154,17 +216,12 @@ elif code:
     else:
         st.info("🔄 Connecting to Facebook…")
         access_token = exchange_code_for_token(code)
-
         if access_token:
-            # Store token for subsequent pages (do not print)
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
             st.success("✅ Login successful! Redirecting…")
-            # Clear query params to avoid reprocessing on refresh
-            try:
-                st.query_params.clear()
-            except Exception:
-                pass
+            try: st.query_params.clear()
+            except Exception: pass
             time.sleep(0.8)
             st.switch_page(DEST_PAGE)
         else:
@@ -179,9 +236,8 @@ else:
     auth_url = build_auth_url()
     st.markdown(f"""
         <div class="hero-box">
-            <h1>Let's Back Up Your Facebook Memories</h1>
-            <p>Looks like you haven’t created a memory vault yet.<br>
-            Link your Facebook account to get started—we’ll securely back up your posts, photos, and more.</p>
+            <h1>Let's Back Up Your <span class="accent">Facebook Memories</span></h1>
+            <p>Link your Facebook account to get started—we’ll securely back up your posts, photos, and more.</p>
             <a href="{auth_url}" class="fb-button">🔗 Link Facebook Account</a>
             <div class="subtext">Already linked Facebook? <strong>Start New Backup</strong></div>
         </div>
