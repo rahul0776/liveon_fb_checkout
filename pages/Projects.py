@@ -284,8 +284,8 @@ fb_token = st.session_state["fb_token"]
 st.markdown(f"""
 <div class="header">
     <div>
-        <h1 style="margin: 0;">My Projects</h1>
-        <p style="color: #6c757d; margin: 4px 0 0 0;">Manage your Facebook backups and projects</p>
+        <h1 style="margin: 0;">Backup Manager</h1>
+        <p style="color: #6c757d; margin: 4px 0 0 0;">Manage your Facebook backups</p>
     </div>
     <div class="user-badge">
         <div class="avatar">
@@ -496,7 +496,7 @@ with tab1 if active_tab == "backups" else tab2 if active_tab == "projects" else 
                         blob_client.get_blob_properties()  # Check existence
                         blob_data = blob_client.download_blob().readall()
                         st.download_button(
-                            label="📥 Download JSON",
+                            label="📥 Download the Backup",
                             data=blob_data,
                             file_name=f"{backup['id']}.json",
                             mime="application/json",
