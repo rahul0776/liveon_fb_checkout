@@ -7,6 +7,33 @@ from urllib.parse import urlencode
 import requests
 import streamlit as st
 from PIL import Image
+import hmac, hashlib, json, base64
+
+def _b64e(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+def _b64d(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * ((4 - len(s) % 4) % 4))
+
+def make_state() -> str:
+    """Create a signed, time-limited state token (no session needed)."""
+    payload = {"ts": int(time.time()), "nonce": pysecrets.token_urlsafe(16)}
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    sig = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
+    return _b64e(raw) + "." + _b64e(sig)
+
+def verify_state(s: str, max_age: int = 600) -> bool:
+    """Verify signature and max age (seconds)."""
+    try:
+        raw_b64, sig_b64 = s.split(".", 1)
+        raw = _b64d(raw_b64)
+        expected = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, _b64d(sig_b64)):
+            return False
+        data = json.loads(raw.decode())
+        return int(time.time()) - int(data["ts"]) <= max_age
+    except Exception:
+        return False
 
 # ── Page config ─────────────────────────────────────────────
 st.set_page_config(
@@ -38,18 +65,15 @@ SCOPES = "email,public_profile,user_posts"
 
 # ── Helpers ────────────────────────────────────────────────
 def build_auth_url() -> str:
-    # CSRF state
-    if "oauth_state" not in st.session_state:
-        st.session_state["oauth_state"] = pysecrets.token_urlsafe(24)
-
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "scope": SCOPES,
         "response_type": "code",
-        "state": st.session_state["oauth_state"],
+        "state": make_state(),          # ← stateless signed state
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+
 
 def exchange_code_for_token(code: str) -> str | None:
     try:
@@ -211,7 +235,7 @@ if error:
     st.query_params.clear()
 
 elif code:
-    if not returned_state or returned_state != st.session_state.get("oauth_state"):
+    if not returned_state or not verify_state(returned_state):
         st.error("Security check failed. Please start the login again.")
     else:
         st.info("🔄 Connecting to Facebook…")
