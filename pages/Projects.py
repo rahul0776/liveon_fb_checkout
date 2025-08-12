@@ -147,146 +147,129 @@ if "generate_memories" in query_params:
 # Custom CSS with modern design
 st.markdown("""
 <style>
-    :root {
-        --primary: #4361ee;
-        --secondary: #3f37c9;
-        --accent: #4895ef;
-        --light: #f8f9fa;
-        --dark: #212529;
-        --success: #4cc9f0;
-        --warning: #f72585;
-    }
-    
-    html, body, .stApp {
-        background: #f5f7fb;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        color: var(--dark);
-        line-height: 1.6;
-    }
-    
-    .stButton>button {
-        border: none;
-        border-radius: 8px;
-        padding: 12px 24px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    .stButton>button.primary {
-        background: var(--primary);
-        color: white;
-    }
-    div[data-testid="stTabs"] button {
-        color: var(--dark) !important;
-    }
-    .stButton>button.primary:hover {
-        background: var(--secondary);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    }
-    .download-actions {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-        margin-top: 8px;
-    }
-    .stDownloadButton {
-        display: inline-block !important;
-        vertical-align: middle;
-    }
-    .stDownloadButton button {
-        width: auto !important;
-        min-width: 140px;
-        text-align: center;
-        background: var(--primary);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 8px 16px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .stDownloadButton button:hover {
-        background: var(--secondary);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    }
-    .card {
-        background: white;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        border: 1px solid #e9ecef;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    
-    .card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.1);
-    }
-    
-    h1, h2, h3 {
-        color: var(--dark);
-        font-weight: 700;
-    }
-    
-    .header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 32px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid #e9ecef;
-    }
-    
-    .user-badge {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        background: white;
-        padding: 10px 16px;
-        border-radius: 50px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
-    
-    .avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: var(--accent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-    }
-    
-    .section-title {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin: 40px 0 16px 0;
-    }
-    
-    .empty-state {
-        text-align: center;
-        padding: 40px 20px;
-        background: #f8f9fa;
-        border-radius: 12px;
-        margin: 20px 0;
-    }
-    
-    .empty-state-icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-        color: #adb5bd;
-    }
+:root{
+  --navy-900:#0F253D;     /* deep background */
+  --navy-800:#143150;
+  --navy-700:#1E3A5F;
+  --navy-500:#2F5A83;
+  --gold:#F6C35D;         /* brand accent */
+  --text:#F3F6FA;         /* off-white text */
+  --muted:#B9C6D6;        /* secondary text */
+  --card:#112A45;         /* card bg */
+  --line:rgba(255,255,255,.14);
+}
+
+/* App background + base typography */
+html, body, .stApp{
+  background: linear-gradient(180deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-700) 100%);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Headings */
+h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
+  color: var(--text) !important;
+  letter-spacing:.25px;
+}
+
+/* Primary buttons (Streamlit buttons) */
+.stButton>button,
+.stDownloadButton button{
+  background: var(--gold) !important;
+  color: var(--navy-900) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 10px 16px !important;
+  font-weight: 800 !important;
+  box-shadow: 0 4px 14px rgba(246,195,93,.22) !important;
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease !important;
+}
+.stButton>button:hover,
+.stDownloadButton button:hover{
+  transform: translateY(-1px);
+  filter: brightness(.95);
+  box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
+}
+
+/* Tabs */
+div[data-testid="stTabs"]{
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+div[data-testid="stTabs"] button{
+  color: var(--muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding-bottom: 10px !important;
+}
+div[data-testid="stTabs"] button[aria-selected="true"]{
+  color: var(--text) !important;
+  border-bottom: 3px solid var(--gold) !important;
+}
+
+/* Cards */
+.card{
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+  padding: 24px;
+  margin-bottom: 24px;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.card:hover{ transform: translateY(-2px); }
+
+/* Page header (title + user badge) */
+.header{
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:32px; padding-bottom:16px; border-bottom:1px solid var(--line);
+}
+.header p{ color: var(--muted) !important; }
+
+.user-badge{
+  display:flex; align-items:center; gap:12px;
+  background: rgba(255,255,255,.06);
+  padding:10px 16px; border-radius: 50px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+.avatar{
+  width:40px; height:40px; border-radius:50%;
+  background: var(--gold);
+  display:flex; align-items:center; justify-content:center;
+  color: var(--navy-900); font-weight: 900;
+}
+
+/* “Empty state” sections */
+.empty-state{
+  text-align:center; padding: 40px 20px;
+  background: rgba(255,255,255,.06);
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+}
+.empty-state-icon{ font-size:48px; margin-bottom:16px; color: var(--gold); }
+
+/* Captions, small text */
+p, span, label, .stCaption, .stMarkdown, .st-emotion-cache-1n76uvr{
+  color: var(--muted) !important;
+}
+
+/* Download buttons inside the list */
+.stDownloadButton{ display:inline-block !important; vertical-align:middle; }
+
+/* Alert styling to match theme */
+div[data-testid="stAlert"]{
+  border-left:4px solid var(--gold) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: var(--text) !important;
+}
+div[data-testid="stAlert"] *{ color: var(--text) !important; }
+
+/* Small tweaks for columns list rows */
+.css-ocqkz7, .css-1dp5vir{ background: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
+
 # ─── Authentication Check ──────────────────────
 if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
     st.warning("Please log in to access your projects.")
