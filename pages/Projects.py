@@ -1,5 +1,5 @@
 # ======================
-# FILE: FbeMyProjects.py
+# FILE: Projects.py
 # ======================
 import streamlit as st
 import os
@@ -18,32 +18,39 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 # 🔥 Hash token for safe cache filename
-def safe_token_hash(token):
+def safe_token_hash(token: str) -> str:
+    import hashlib
     return hashlib.md5(token.encode()).hexdigest()
-def restore_session():
-    """Restore session from per-user cache if available"""
-    fb_token = st.session_state.get("fb_token")
-    if fb_token:
-        CACHE_DIR = Path("cache")
-        cache_file = CACHE_DIR / f"backup_cache_{hashlib.md5(fb_token.encode()).hexdigest()}.json"
 
-        # Try to find any cache file
-        for f in Path(".").glob("cache/backup_cache_*.json"):
-            try:
-                with open(f, "r") as file:
-                    cached = json.load(file)
-                    if "fb_token" in cached:
-                        st.session_state.update({
-                            "fb_token": cached.get("fb_token"),
-                            "fb_id": cached.get("latest_backup", {}).get("user_id"),
-                            "fb_name": cached.get("latest_backup", {}).get("Name"),
-                            "latest_backup": cached.get("latest_backup"),
-                            "new_backup_done": cached.get("new_backup_done"),
-                            "new_project_added": cached.get("new_project_added")
-                        })
-                        break
-            except Exception as e:
-                st.error(f"Error restoring from {f}: {e}")
+def restore_session():
+    """Restore session for the current user only (scoped by fb_token)."""
+    fb_token = st.session_state.get("fb_token")
+    if not fb_token:
+        return
+
+    cache_path = Path("cache") / f"backup_cache_{safe_token_hash(fb_token)}.json"
+    if not cache_path.exists():
+        return
+
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+
+        # must match the current token
+        if cached.get("fb_token") != fb_token:
+            return
+
+        latest = cached.get("latest_backup") or {}
+        st.session_state.update({
+            "fb_token": cached.get("fb_token"),
+            "fb_id": str(latest.get("user_id") or st.session_state.get("fb_id") or ""),
+            "fb_name": latest.get("Name") or st.session_state.get("fb_name"),
+            "latest_backup": latest,
+            "new_backup_done": cached.get("new_backup_done"),
+            "new_project_added": cached.get("new_project_added"),
+        })
+    except Exception as e:
+        if DEBUG: st.warning(f"Could not restore session: {e}")
 
             
 
@@ -82,7 +89,7 @@ user_folder = f"{st.session_state['fb_id']}/projects"
 projects_blob_path = f"{user_folder}/projects_{st.session_state['fb_id']}.json"
 
 
-
+projects = []
 # 🔥 Force reload all backups and projects after redirect
 if st.session_state.get("redirect_to_projects", False) or st.session_state.get("new_project_added", False):
     st.session_state["redirect_to_projects"] = False  # reset flag
@@ -322,67 +329,64 @@ backups = []
 if blob_service_client:
     try:
         container_client = blob_service_client.get_container_client("backup")
-        blobs = list(container_client.list_blobs(name_starts_with=f"{st.session_state['fb_id']}/"))
-        
-        # Process backups with progress indicator
-        # 🆕 Process user-specific backups
-        with st.spinner("🔄 Loading your backups…"):
-            user_id = str(st.session_state["fb_id"]).strip()
-            for blob in blobs:
-                if blob.name.endswith("summary.json"):
-                    parts = blob.name.split("/")
-                    if len(parts) >= 2:
-                        folder_fb_id = parts[0].strip()
-                        folder_name = parts[1].strip()
-                        # ✅ Skip any folders inside /projects/
-                        if folder_fb_id == user_id and not folder_name.startswith("projects/"):
-                            try:
-                                summary_blob = container_client.get_blob_client(blob.name)
-                                summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
-                                posts_blob_path = f"{folder_fb_id}/{folder_name}/posts+cap.json"
-                                posts_blob = container_client.get_blob_client(posts_blob_path)
-                                if posts_blob.exists():
-                                    created_date = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
-                                    backups.append({
-                                        "id": f"{folder_fb_id}/{folder_name}",
-                                        "name": summary.get("user") or folder_name.replace("_", " "),
-                                        "date": created_date.strftime("%b %d, %Y"),
-                                        "posts": summary.get("posts", 0),
-                                        "status": "Completed",
-                                        "raw_date": created_date
-                                    })
-                            except Exception as e:
-                                if DEBUG: st.warning(f"⚠️ Error reading backup in {blob.name}: {e}")
-            
-            # Process each folder
-            for backup in backups:
-                try:
-                    summary_blob = container_client.get_blob_client(f"{backup['id']}/summary.json")
-                    posts_blob = container_client.get_blob_client(f"{backup['id']}/posts+cap.json")
-                    if summary_blob.exists():
-                        summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
-                        # Strict user ID matching
-                        backup_user_id = str(summary.get("user_id", "")).strip()
-                        current_user_id = str(st.session_state["fb_id"]).strip()
-                        if backup_user_id == current_user_id and posts_blob.exists():
-                            created_date = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
-                            # Add to backups if not already present
-                            folder_normalized = backup['id'].lower().strip()
-                            if not any(b["id"].lower().strip() == folder_normalized for b in backups):
-                                backups.append({
-                                    "id": backup['id'],
-                                    "name": summary.get("user") or backup['id'].replace("_", " "),
-                                    "date": created_date.strftime("%b %d, %Y"),
-                                    "posts": summary.get("posts", 0),
-                                    "status": "Completed",
-                                    "raw_date": created_date
-                                })
-                except Exception as e:
-                    if DEBUG: st.warning(f"⚠️ Error processing backup {backup['id']}: {str(e)}")
-                    continue
+        backups = []
+        if blob_service_client:
+            try:
+                container_client = blob_service_client.get_container_client("backup")
+                user_id = str(st.session_state["fb_id"]).strip()
 
-        # Sort backups by date (newest first)
-        backups.sort(key=lambda x: x["raw_date"], reverse=True)
+                with st.spinner("🔄 Loading your backups…"):
+                    for blob in container_client.list_blobs(name_starts_with=f"{user_id}/"):
+                        # looking for {fb_id}/{folder}/summary.json
+                        if not blob.name.endswith("summary.json"):
+                            continue
+                        parts = blob.name.split("/")
+                        if len(parts) < 3:
+                            continue
+
+                        folder_fb_id, folder_name = parts[0].strip(), parts[1].strip()
+
+                        # only your root backup folders; skip projects folder
+                        if folder_fb_id != user_id or folder_name.startswith("projects/"):
+                            continue
+
+                        try:
+                            summary = json.loads(
+                                container_client.get_blob_client(blob.name)
+                                .download_blob().readall().decode("utf-8")
+                            )
+                        except Exception:
+                            continue
+
+                        # extra guard: summary must match you
+                        if str(summary.get("user_id", "")).strip() != user_id:
+                            continue
+
+                        posts_blob = container_client.get_blob_client(
+                            f"{folder_fb_id}/{folder_name}/posts+cap.json"
+                        )
+                        if not posts_blob.exists():
+                            continue
+
+                        created_dt = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
+                        backups.append({
+                            "id": f"{folder_fb_id}/{folder_name}",
+                            "name": summary.get("user") or folder_name.replace("_", " "),
+                            "date": created_dt.strftime("%b %d, %Y"),
+                            "posts": summary.get("posts", 0),
+                            "status": "Completed",
+                            "raw_date": created_dt
+                        })
+
+                # sort and de-dup by id
+                seen = set()
+                backups = [
+                    b for b in sorted(backups, key=lambda x: x["raw_date"], reverse=True)
+                    if not (b["id"] in seen or seen.add(b["id"]))
+                ]
+            except Exception as e:
+                st.error(f"Azure connection error: {e}")
+
     except Exception as e:
         st.error(f"Azure connection error: {e}")
 

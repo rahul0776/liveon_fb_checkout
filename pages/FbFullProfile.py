@@ -111,7 +111,7 @@ label, .stMarkdown, .stCaption, .st-emotion-cache-1n76uvr{ color: var(--muted) !
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="topbar"><div><strong>LiveOn</strong> · Backup&nbsp;Process</div>'
-            '<a href="/FbeMyProjects?tab=backups" target="_self">⇦ Back to Dashboard</a></div>', 
+            '<a href="/Projects?tab=backups" target="_self">⇦ Back to Dashboard</a></div>', 
             unsafe_allow_html=True)
 # ── Azure & Paths ────────────────────────────────
 AZ_CONN = st.secrets["AZURE_CONNECTION_STRING"]
@@ -381,20 +381,7 @@ if editing_folder:
         # Persist session safely before redirect
         cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, "w") as f:
-            json.dump({
-                "fb_token": token,
-            "latest_backup": {
-                "Name": fb_name,
-                "Created On": datetime.now().strftime("%b %d, %Y"),
-                "# Posts": len(filtered_posts),           
-                "Folder": user_folder.rstrip("/"),         
-                "user_id": fb_id
-            },
-                "new_backup_done": True,
-                "new_project_added": True
-            }, f)
-        with open(cache_file, "w") as f:
+        with open(cache_file, "w", encoding="utf-8") as f:
             json.dump({
                 "fb_token": token,
                 "latest_backup": {
@@ -406,16 +393,8 @@ if editing_folder:
                 },
                 "new_backup_done": True,
                 "new_project_added": True
-            }, f)
+            }, f, indent=2)
 
-        # 👇 add this block
-        st.session_state.update({
-            "fb_token": token,
-            "new_backup_done": True,
-            "new_project_added": True,
-            "redirect_to_projects": True,   # opens the Projects view on return
-            "force_reload": True            # forces a fresh read on the dashboard
-        })
         st.switch_page("pages/Projects.py")
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
@@ -546,6 +525,7 @@ if st.button("⬇️ Start My Backup"):
     st.session_state["latest_backup"] = latest_backup
     st.session_state["redirect_to_backups"] = True
     st.session_state["force_reload"] = True
+    st.switch_page("pages/Projects.py")
     # ✅ After backup complete
     st.success("✅ Backup complete! 🎉 Your scrapbook is ready to preview!")
 
@@ -620,7 +600,7 @@ if st.button("⬇️ Start My Backup"):
 
     with col2:
         if st.button("← Back to My Projects"):
-            st.switch_page("pages/FbeMyProjects.py")
+            st.switch_page("pages/Projects.py")
 
     st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
