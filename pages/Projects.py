@@ -140,14 +140,7 @@ else:
 # ─── Facebook Session Variables ───────────────────────
 
 query_params = st.query_params
-if "edit_duration" in query_params:
-    folder_name = query_params["edit_duration"][0]
-    if DEBUG: st.info(f"Editing folder passed from dashboard: {folder_name}")
-    if folder_name and folder_name != "f":  # ✅ Prevent invalid folder names
-        st.session_state["editing_backup_folder"] = folder_name
-        st.switch_page("pages/FbFullProfile.py")
-    else:
-        st.error("❌ Invalid folder passed. Please select a valid backup.")
+
 if "generate_memories" in query_params:
     st.session_state["selected_backup"] = query_params["generate_memories"][0]
     st.switch_page("pages/FbMemories.py")
@@ -469,7 +462,7 @@ except Exception as e:
 # ─── Backups Only (clean view) ──────────────────────────
 st.markdown(
     "<h3 style='margin-top:0; margin-bottom:8px;'>📦 My Backups</h3>"
-    "<p style='color:var(--muted); margin-top:-4px;'>Create, download, or refine your Facebook backups.</p>",
+    "<p style='color:var(--muted); margin-top:-4px;'>Create or download your Facebook backups.</p>",
     unsafe_allow_html=True,
 )
 
@@ -521,15 +514,10 @@ if backups:
             except Exception:
                 st.caption("No posts file available to download.")
 
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("✂️ Edit Duration", key=f"edit_{backup['id']}", type="primary"):
-                    st.session_state["editing_backup_folder"] = backup['id']
-                    st.switch_page("pages/FbFullProfile.py")
-            with b2:
-                if st.button("📘 Generate Memories", key=f"mem_{backup['id']}", type="primary"):
-                    st.session_state["selected_backup"] = backup['id']
-                    st.switch_page("pages/FbMemories.py")
+            if st.button("📘 Generate Memories", key=f"mem_{backup['id']}", type="primary"):
+                st.session_state["selected_backup"] = backup['id']
+                st.switch_page("pages/FbMemories.py")
+
 
         st.divider()
 
