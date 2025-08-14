@@ -191,21 +191,7 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
   box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
 }
 
-/* Tabs */
-div[data-testid="stTabs"]{
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
-}
-div[data-testid="stTabs"] button{
-  color: var(--muted) !important;
-  background: transparent !important;
-  border: 0 !important;
-  padding-bottom: 10px !important;
-}
-div[data-testid="stTabs"] button[aria-selected="true"]{
-  color: var(--text) !important;
-  border-bottom: 3px solid var(--gold) !important;
-}
+
 
 /* Cards */
 .card{
@@ -460,149 +446,79 @@ except Exception as e:
     st.error(f"❌ Error loading projects: {e}")
 
             
-# ─── Main Content ──────────────────────────────
-# Update the tabs creation:
-tab1, tab2, tab3 = st.tabs(["📦 My Backups", "📚 My Projects", "📦 Orders"])
-active_tab = default_tab  # This will control which tab opens by default
-# Later in the code where you create tabs:
-with tab1 if active_tab == "backups" else tab2 if active_tab == "projects" else tab3:
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("＋ New Backup", type="primary", use_container_width=True):
-            st.switch_page("pages/FbFullProfile.py")
-    
-    if backups:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        # Enhanced backup table
-        for backup in backups:
-            cols = st.columns([3, 1, 1, 1, 3])
-            with cols[0]:
-                st.markdown(f"**{backup['name']}**")
-                st.caption(f"ID: {backup['id']}")
-            with cols[1]:
-                st.markdown(f"**{backup['posts']}**")
-                st.caption("Posts")
-            with cols[2]:
-                st.markdown(f"**{backup['date']}**")
-                st.caption("Created")
-            with cols[3]:
-                st.caption("Actions")
-            with cols[4]:
-                posts_blob_path = f"{backup['id']}/posts+cap.json"
-                try:
-                    if blob_service_client:
-                        blob_client = container_client.get_blob_client(posts_blob_path)
-                        blob_client.get_blob_properties()  # Check existence
-                        blob_data = blob_client.download_blob().readall()
-                        st.download_button(
-                            label="📥 Download the Backup",
-                            data=blob_data,
-                            file_name=f"{backup['id']}.json",
-                            mime="application/json",
-                            use_container_width=True
-                        )
-                except Exception:
-                    st.caption("No posts file available to download.")
-                # Use Streamlit buttons instead of HTML links
-                edit_col, memories_col = st.columns([1, 1])
-                with edit_col:
-                    if st.button("✂️ Edit Duration", key=f"edit_{backup['id']}", type="primary"):
-                        st.session_state["editing_backup_folder"] = backup['id']
-                        st.switch_page("pages/FbFullProfile.py")
-                with memories_col:
-                    if st.button("📘 Generate Memories", key=f"memories_{backup['id']}", type="primary"):
-                        st.session_state["selected_backup"] = backup['id']
-                        st.switch_page("pages/FbMemories.py")
-            st.divider()
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-state-icon">📂</div>
-            <h3>No backups yet</h3>
-            <p>Create your first backup to get started</p>
-            <button class="stButton primary" onclick="window.location.href='/FbFullProfile'">Create Backup</button>
-        </div>
-        """, unsafe_allow_html=True)
-with tab2:
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("＋ New Project", type="primary", use_container_width=True):
-            st.switch_page("pages/FbMemories.py")
-    
-    if projects:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        for i, project in enumerate(projects):  # Add enumerate to get index
-            cols = st.columns([3, 1, 1, 1])
-            with cols[0]:
-                st.markdown(f"**{project.get('name', 'Unnamed Project')}**")
-                st.caption(project.get('description', 'No description'))
-            with cols[1]:
-                st.markdown(f"**{project.get('status', 'Draft')}**")
-                st.caption("Status")
-            with cols[2]:
-                st.markdown(f"**{project.get('created', 'Unknown')}**")
-                st.caption("Created")
-            with cols[3]:
-                edit_col, memories_col = st.columns([1, 1])
-                with edit_col:
-                    if st.button("📝 Edit Project", key=f"edit_project_{project.get('id')}_{i}"):
-                        st.session_state.selected_project = project.get('id')
-                        st.switch_page("pages/FbProjectEditor.py")
-                with memories_col:
-                    if st.button("📘 Generate Memories", key=f"memories_project_{project.get('id')}_{i}"):
-                        st.session_state["selected_project"] = project.get("id")
-                        st.switch_page("pages/FbMemories.py")
-            st.divider()
-        st.markdown("</div>", unsafe_allow_html=True)
-    if isinstance(projects, list) and len(projects) == 0:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-state-icon">📝</div>
-            <h3>No projects yet</h3>
-            <p>Start a new project from one of your backups</p>
-        </div>
-        """, unsafe_allow_html=True)
+# ─── Backups Only (clean view) ──────────────────────────
+st.markdown(
+    "<h3 style='margin-top:0; margin-bottom:8px;'>📦 My Backups</h3>"
+    "<p style='color:var(--muted); margin-top:-4px;'>Create, download, or refine your Facebook backups.</p>",
+    unsafe_allow_html=True,
+)
 
-with tab3:
-    orders = st.session_state.get("orders", [
-        {"id": "56781", "product": "Hardcover Scrapbook", "status": "In Printing", "date": "2023-11-15"},
-        {"id": "56724", "product": "PDF Scrapbook", "status": "Delivered", "date": "2023-10-28"},
-    ])
-    
-    if orders:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        for order in orders:
-            status_color = {
-                "Delivered": "green",
-                "In Printing": "orange",
-                "Processing": "blue"
-            }.get(order['status'], "gray")
-            
-            cols = st.columns([1, 2, 1, 1, 1])
-            with cols[0]:
-                st.markdown(f"**#{order['id']}**")
-            with cols[1]:
-                st.markdown(f"**{order['product']}**")
-            with cols[2]:
-                st.markdown(f"**{order['date']}**")
-            with cols[3]:
-                st.markdown(f"<span style='color: {status_color}; font-weight: bold;'>{order['status']}</span>", 
-                          unsafe_allow_html=True)
-            with cols[4]:
-                if st.button("Track", key=f"track_{order['id']}"):
-                    st.session_state.selected_order = order['id']
-                    st.switch_page("pages/OrderTracker.py")
-            
-            st.divider()
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-state-icon">📦</div>
-            <h3>No orders yet</h3>
-            <p>Your order history will appear here</p>
-        </div>
-        """, unsafe_allow_html=True)
+top_left, _ = st.columns([1, 3])
+with top_left:
+    if st.button("＋ New Backup", type="primary", use_container_width=True):
+        st.switch_page("pages/FbFullProfile.py")
+
+if backups:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+    # Header row
+    hdr = st.columns([3, 1, 1, 1, 3])
+    with hdr[0]: st.caption("Backup")
+    with hdr[1]: st.caption("Posts")
+    with hdr[2]: st.caption("Created")
+    with hdr[3]: st.caption(" ")   # actions label spacer
+    with hdr[4]: st.caption("Actions")
+    st.divider()
+
+    # Rows
+    for backup in backups:
+        cols = st.columns([3, 1, 1, 1, 3])
+        with cols[0]:
+            st.markdown(f"**{backup['name']}**")
+            st.caption(f"{backup['id']}")
+        with cols[1]:
+            st.markdown(f"**{backup['posts']}**")
+            st.caption("Posts")
+        with cols[2]:
+            st.markdown(f"**{backup['date']}**")
+            st.caption("Created")
+        with cols[3]:
+            st.caption("")  # spacer
+        with cols[4]:
+            posts_blob_path = f"{backup['id']}/posts+cap.json"
+            try:
+                if blob_service_client:
+                    blob_client = container_client.get_blob_client(posts_blob_path)
+                    blob_client.get_blob_properties()  # existence check
+                    blob_data = blob_client.download_blob().readall()
+                    st.download_button(
+                        label="📥 Download the Backup",
+                        data=blob_data,
+                        file_name=f"{backup['id'].replace('/', '_')}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+            except Exception:
+                st.caption("No posts file available to download.")
+
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button("✂️ Edit Duration", key=f"edit_{backup['id']}", type="primary"):
+                    st.session_state["editing_backup_folder"] = backup['id']
+                    st.switch_page("pages/FbFullProfile.py")
+            with b2:
+                if st.button("📘 Generate Memories", key=f"mem_{backup['id']}", type="primary"):
+                    st.session_state["selected_backup"] = backup['id']
+                    st.switch_page("pages/FbMemories.py")
+
+        st.divider()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <div class="empty-state">
+        <div class="empty-state-icon">📂</div>
+        <h3>No backups yet</h3>
+        <p>Create your first backup to get started.</p>
+    </div>
+    """, unsafe_allow_html=True)
