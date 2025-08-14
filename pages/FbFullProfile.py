@@ -173,14 +173,18 @@ def download_image(url, name_id):
     if r.status_code == 200:
         with open(local_path, 'wb') as f: shutil.copyfileobj(r.raw, f)
     else: raise Exception(f"Image download failed: {r.status_code}")
-    return str(local_path)
+    return local_path
 
 def generate_blob_url(folder_prefix: str, image_name: str) -> str:
     account_name = blob_service_client.account_name
-    return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote_plus(folder_prefix + '/images/' + image_name)}"
+    return (
+        f"https://{account_name}.blob.core.windows.net/"
+        f"{CONTAINER}/{folder_prefix}/images/{quote_plus(image_name)}"
+    )
 
 def dense_caption(img_path):
-    endpoint = st.secrets["AZURE_VISION_ENDPOINT"].rstrip("/") + "/vision/v3.2/analyze?visualFeatures=Description,Tags,Objects"
+    endpoint = st.secrets["AZURE_VISION_ENDPOINT"].rstrip("/") + \
+               "/vision/v3.2/analyze?visualFeatures=Description,Tags,Objects"
     headers = {
         "Ocp-Apim-Subscription-Key": st.secrets["AZURE_VISION_KEY"],
         "Content-Type": "application/octet-stream"
@@ -191,20 +195,12 @@ def dense_caption(img_path):
         r = requests.post(endpoint, headers=headers, data=data, timeout=8)
         r.raise_for_status()
         result = r.json()
-
-        result = r.json()
-
-        # ✅ Only the plain caption (no tags/objects)
-        caption = result.get("description", {}).get("captions", [{}])[0].get("text", "")
-        return caption or ""
-
-        return context_caption
-
+        captions = (result.get("description", {}).get("captions") or [{}])
+        return captions[0].get("text", "") or ""
     except requests.exceptions.Timeout:
         return "No caption (timeout)"
     except Exception as e:
-        return f"No caption (API error: {str(e)})"
-
+        return f"No caption (API error: {e})"
 
 def zip_backup(zip_name):
     zip_path = Path(zip_name)
@@ -290,31 +286,38 @@ if editing_folder:
         # Save filtered posts locally
         posts_fp = BACKUP_DIR / "posts.json"
         posts_fp.write_text(json.dumps(filtered_posts, indent=2, ensure_ascii=False), encoding="utf-8")
-        # Download images and generate captions
+        
+        # 2️⃣ Download images & captions for the filtered posts
         st.info("🔄 Downloading images & generating captions...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = []
+            futures = []  # (post, future)
             for post in filtered_posts:
-                img_url = post.get("images")[0] if post.get("images") else None
-                if img_url:
-                    try:
-                        img_path = download_image(img_url, post["id"])
-                        futures.append(executor.submit(dense_caption, img_path))
-                        blob_url_base = "https://fbbackupkhushi.blob.core.windows.net"
-                        azure_img_url = generate_blob_url(user_folder, img_path.name)
-                        post["picture"] = azure_img_url
-                        post["images"] = [azure_img_url]
+                img_url = (post.get("images") or [None])[0]
+                if not img_url:
+                    continue
+                try:
+                    img_path = download_image(img_url, post["id"])
+                    futures.append((post, executor.submit(dense_caption, img_path)))
 
+                    # 👇 use the *project* folder for these images
+                    signed_url = generate_blob_url(user_folder, Path(img_path).name)
+                    post["picture"] = signed_url
+                    post.setdefault("images", [])
+                    if signed_url not in post["images"]:
+                        post["images"].insert(0, signed_url)
+                except Exception as e:
+                    post["picture"] = "download failed"
+                    post["context_caption"] = f"Image download failed: {e}"
 
-                    except Exception as e:
-                        post["picture"] = "download failed"
-                        post["context_caption"] = f"Image download failed: {e}"
-            for idx, post in enumerate(filtered_posts):
-                if post.get("full_picture"):
-                    try:
-                        post["context_caption"] = futures[idx].result()
-                    except:
-                        post["context_caption"] = "caption failed"
+            # Progress just for edit-mode
+            stepbar = st.progress(0.30)
+            total = max(1, len(futures))
+            for i, (post, fut) in enumerate(futures, start=1):
+                try:
+                    post["context_caption"] = fut.result()
+                except Exception:
+                    post["context_caption"] = "caption failed"
+                stepbar.progress(0.30 + 0.40 * (i / total))
         # Save posts+cap.json
         posts_cap_fp = BACKUP_DIR / "posts+cap.json"
         posts_cap_fp.write_text(json.dumps(filtered_posts, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -376,23 +379,44 @@ if editing_folder:
 
         st.success("✅ Project and filtered backup created successfully!")
         # Persist session safely before redirect
-        cache_file = Path(f"backup_cache_{fb_id}.json")
+        cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
         cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w") as f:
+            json.dump({
+                "fb_token": token,
+            "latest_backup": {
+                "Name": fb_name,
+                "Created On": datetime.now().strftime("%b %d, %Y"),
+                "# Posts": len(filtered_posts),           
+                "Folder": user_folder.rstrip("/"),         
+                "user_id": fb_id
+            },
+                "new_backup_done": True,
+                "new_project_added": True
+            }, f)
         with open(cache_file, "w") as f:
             json.dump({
                 "fb_token": token,
                 "latest_backup": {
                     "Name": fb_name,
                     "Created On": datetime.now().strftime("%b %d, %Y"),
-                    "# Posts": len(posts),
-                    "Folder": folder_prefix.rstrip("/"),
+                    "# Posts": len(filtered_posts),
+                    "Folder": user_folder.rstrip("/"),
                     "user_id": fb_id
                 },
                 "new_backup_done": True,
                 "new_project_added": True
             }, f)
-        st.session_state["fb_token"] = token
-        st.switch_page("pages/FbeMyProjects.py")
+
+        # 👇 add this block
+        st.session_state.update({
+            "fb_token": token,
+            "new_backup_done": True,
+            "new_project_added": True,
+            "redirect_to_projects": True,   # opens the Projects view on return
+            "force_reload": True            # forces a fresh read on the dashboard
+        })
+        st.switch_page("pages/Projects.py")
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -429,34 +453,35 @@ if st.button("⬇️ Start My Backup"):
     # 2️⃣ Download images & captions
     st.info("🔄 Downloading images & generating captions...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = []
+        futures = []  # (post, future) to keep alignment
         for post in posts:
             img_url = post.get("images")[0] if post.get("images") else None
-            if img_url:
-                try:
-                    img_path = download_image(img_url, post["id"])
-                    futures.append(executor.submit(dense_caption, img_path))
-                    # local path is img_path; use blob path for dashboard
-                    signed_url = generate_blob_url(folder_prefix, img_path.name)
-                    post["picture"] = signed_url
-                    if "images" not in post:
-                        post["images"] = [signed_url]
-                    elif signed_url not in post["images"]:
-                        post["images"].insert(0, signed_url)
+            if not img_url:
+                continue
+            try:
+                img_path = download_image(img_url, post["id"])
+                futures.append((post, executor.submit(dense_caption, img_path)))
 
+                # local path is img_path; use blob path for dashboard
+                signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
+                post["picture"] = signed_url
+                post.setdefault("images", [])
+                if signed_url not in post["images"]:
+                    post["images"].insert(0, signed_url)
+            except Exception as e:
+                post["picture"] = "download failed"
+                post["context_caption"] = f"Image download failed: {e}"
 
+        # ✅ Responsive progress while collecting results
+        total = max(1, len(futures))
+        for i, (post, fut) in enumerate(futures, start=1):
+            try:
+                post["context_caption"] = fut.result()
+            except Exception:
+                post["context_caption"] = "caption failed"
+            # grow bar from 0.30 → 0.70 as captions complete
+            bar.progress(0.30 + 0.40 * (i / total))
 
-                except Exception as e:
-                    post["picture"] = "download failed"
-                    post["context_caption"] = f"Image download failed: {e}"
-        future_index = 0
-        for post in posts:
-            if post.get("full_picture"):
-                try:
-                    post["context_caption"] = futures[future_index].result()
-                except:
-                    post["context_caption"] = "caption failed"
-                future_index += 1
 
     # 3️⃣ Save core files
     save_json(posts, "posts+cap")
@@ -598,3 +623,4 @@ if st.button("⬇️ Start My Backup"):
             st.switch_page("pages/FbeMyProjects.py")
 
     st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
