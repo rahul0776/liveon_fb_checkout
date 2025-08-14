@@ -265,26 +265,22 @@ def extract_image_urls(post):
     return list(urls)
 
 # --------------------------------------------
-# Inline "Create Facebook Backup" (formerly a page)
+# Top section: show either the New Backup header or the Creator
 # --------------------------------------------
-st.markdown(
-    "<h3 style='margin-top:0; margin-bottom:8px;'>📦 My Backups</h3>"
-    "<p style='color:var(--muted); margin-top:-4px;'>Create or download your Facebook backups.</p>",
-    unsafe_allow_html=True,
-)
-
-left_btn_col, _ = st.columns([1, 3])
-with left_btn_col:
-    # Hide the + New Backup button while the creator is open
-    if not st.session_state["show_creator"]:
+if not st.session_state["show_creator"]:
+    # Show section header + description + button ONLY when creator is closed
+    st.markdown(
+        "<h3 style='margin-top:0; margin-bottom:8px;'>📦 My Backups</h3>"
+        "<p style='color:var(--muted); margin-top:-4px;'>Create or download your Facebook backups.</p>",
+        unsafe_allow_html=True,
+    )
+    left_btn_col, _ = st.columns([1, 3])
+    with left_btn_col:
         if st.button("＋ New Backup", type="primary", use_container_width=True, key="new_backup_btn"):
             st.session_state["show_creator"] = True
             st.rerun()
-    else:
-        st.write("")  # spacing placeholder
-
-# Creator card (only when toggled)
-if st.session_state.get("show_creator"):
+else:
+    # Creator card
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("📦 Create Facebook Backup")
     st.markdown("""<div class="instructions">
@@ -293,7 +289,6 @@ if st.session_state.get("show_creator"):
     <em>Large backups may take several minutes.</em></div>""", unsafe_allow_html=True)
 
     token = st.session_state["fb_token"]
-    # compute folder prefix per run
     fb_profile = requests.get(f"https://graph.facebook.com/me?fields=id,name,email&access_token={token}").json()
     fb_name_slug = (fb_profile.get("name", "user") or "user").replace(" ", "_")
     fb_id_val = fb_profile.get("id")
@@ -364,7 +359,6 @@ if st.session_state.get("show_creator"):
         shutil.rmtree(BACKUP_DIR)
         BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
 
-        # write cache ONCE
         cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         latest_backup = {
@@ -381,7 +375,6 @@ if st.session_state.get("show_creator"):
                 "new_backup_done": True
             }, f, indent=2)
 
-        # update in-memory state and refresh list
         st.session_state.update({
             "fb_token": token,
             "new_backup_done": True,
