@@ -191,7 +191,21 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
   box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
 }
 
-
+/* Tabs */
+div[data-testid="stTabs"]{
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+div[data-testid="stTabs"] button{
+  color: var(--muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding-bottom: 10px !important;
+}
+div[data-testid="stTabs"] button[aria-selected="true"]{
+  color: var(--text) !important;
+  border-bottom: 3px solid var(--gold) !important;
+}
 
 /* Cards */
 .card{
