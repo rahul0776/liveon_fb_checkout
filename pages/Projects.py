@@ -54,6 +54,9 @@ def restore_session():
 
 restore_session()
 
+# creator collapsed by default
+st.session_state.setdefault("show_creator", False)
+
 if st.session_state.pop("force_reload", False):
     st.rerun()
 
@@ -272,8 +275,13 @@ st.markdown(
 
 left_btn_col, _ = st.columns([1, 3])
 with left_btn_col:
-    if st.button("＋ New Backup", type="primary", use_container_width=True):
-        st.session_state["show_creator"] = True
+    # Hide the + New Backup button while the creator is open
+    if not st.session_state["show_creator"]:
+        if st.button("＋ New Backup", type="primary", use_container_width=True, key="new_backup_btn"):
+            st.session_state["show_creator"] = True
+            st.rerun()
+    else:
+        st.write("")  # spacing placeholder
 
 # Creator card (only when toggled)
 if st.session_state.get("show_creator"):
@@ -380,7 +388,7 @@ if st.session_state.get("show_creator"):
             "latest_backup": latest_backup,
             "redirect_to_backups": True,
             "force_reload": True,
-            "show_creator": False,
+            "show_creator": False,  # close creator after completion
         })
         st.success("✅ Backup complete! 🎉 Your scrapbook is ready to preview!")
         st.rerun()
