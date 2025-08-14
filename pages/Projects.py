@@ -54,8 +54,9 @@ def restore_session():
 
 restore_session()
 
-# creator collapsed by default
+# creator collapsed by default + running flag
 st.session_state.setdefault("show_creator", False)
+st.session_state.setdefault("backup_running", False)
 
 if st.session_state.pop("force_reload", False):
     st.rerun()
@@ -294,96 +295,124 @@ else:
     fb_id_val = fb_profile.get("id")
     folder_prefix = f"{fb_id_val}/{fb_name_slug}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
-    if st.button("⬇️ Start My Backup"):
-        bar = st.progress(0.10)
+    start_disabled = st.session_state.get("backup_running", False)
 
-        posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
-        for post in posts:
-            post["images"] = extract_image_urls(post)
-        save_json(posts, "posts")
-        bar.progress(0.30)
+    if st.button("⬇️ Start My Backup", disabled=start_disabled):
+        # mark running, show toast
+        st.session_state["backup_running"] = True
+        st.toast("Starting your backup…", icon="🟡")
 
-        st.info("🔄 Downloading images & generating captions...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = []
+        # overall progress + narrated status
+        overall = st.progress(0)
+        with st.status("Preparing to start…", state="running", expanded=True) as status:
+            # 1) Fetch posts
+            status.update(label="Fetching your Facebook posts…", state="running")
+            posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
             for post in posts:
-                img_url = post.get("images")[0] if post.get("images") else None
-                if not img_url:
-                    continue
-                try:
-                    img_path = download_image(img_url, post["id"])
-                    futures.append((post, executor.submit(dense_caption, img_path)))
-                    signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
-                    post["picture"] = signed_url
-                    post.setdefault("images", [])
-                    if signed_url not in post["images"]:
-                        post["images"].insert(0, signed_url)
-                except Exception as e:
-                    post["picture"] = "download failed"
-                    post["context_caption"] = f"Image download failed: {e}"
+                post["images"] = extract_image_urls(post)
+            save_json(posts, "posts")
+            overall.progress(20)
+            status.write(f"• Fetched {len(posts)} posts")
 
-            total = max(1, len(futures))
-            for i, (post, fut) in enumerate(futures, start=1):
-                try:
-                    post["context_caption"] = fut.result()
-                except Exception:
-                    post["context_caption"] = "caption failed"
-                bar.progress(0.30 + 0.40 * (i / total))
+            # 2) Download images & generate captions
+            status.update(label="Downloading images & generating captions…", state="running")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = []
+                for post in posts:
+                    img_url = post.get("images")[0] if post.get("images") else None
+                    if not img_url:
+                        continue
+                    try:
+                        img_path = download_image(img_url, post["id"])
+                        futures.append((post, executor.submit(dense_caption, img_path)))
+                        signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
+                        post["picture"] = signed_url
+                        post.setdefault("images", [])
+                        if signed_url not in post["images"]:
+                            post["images"].insert(0, signed_url)
+                    except Exception as e:
+                        post["picture"] = "download failed"
+                        post["context_caption"] = f"Image download failed: {e}"
 
-        save_json(posts, "posts+cap")
-        save_json({"comments": []}, "comments.json")
-        save_json({"likes": []}, "likes.json")
-        save_json({"videos": []}, "videos.json")
-        save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json")
+                sub = st.progress(0)   # sub-progress for captioning
+                total = max(1, len(futures))
+                for i, (post, fut) in enumerate(futures, start=1):
+                    try:
+                        post["context_caption"] = fut.result()
+                    except Exception:
+                        post["context_caption"] = "caption failed"
+                    sub.progress(i / total)
+            overall.progress(50)
+            status.write(f"• Processed {len(posts)} posts with images")
 
-        summary = {
-            "user": fb_name_slug,
-            "user_id": fb_id_val,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "posts": len(posts)
-        }
-        save_json(summary, "summary")
-        bar.progress(0.70)
+            # 3) Save files locally
+            status.update(label="Saving backup files…", state="running")
+            save_json(posts, "posts+cap")
+            save_json({"comments": []}, "comments.json")
+            save_json({"likes": []}, "likes.json")
+            save_json({"videos": []}, "videos.json")
+            save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json")
+            summary = {
+                "user": fb_name_slug, "user_id": fb_id_val,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "posts": len(posts)
+            }
+            save_json(summary, "summary")
+            overall.progress(65)
+            status.write("• Files prepared")
 
-        st.info("☁️ Uploading backup to Azure...")
-        upload_folder(BACKUP_DIR, folder_prefix)
+            # 4) Upload to Azure
+            status.update(label="Uploading backup to Azure…", state="running")
+            upload_folder(BACKUP_DIR, folder_prefix)
+            overall.progress(85)
+            status.write("• Uploaded backup folder")
 
-        zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
-        with open(zip_path, "rb") as f:
-            container = blob_service_client.get_container_client(CONTAINER)
-            container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
+            # 5) Create + upload zip
+            status.update(label="Creating ZIP archive…", state="running")
+            zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+            with open(zip_path, "rb") as f:
+                container = blob_service_client.get_container_client(CONTAINER)
+                container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
+            overall.progress(92)
+            status.write("• ZIP uploaded")
 
-        bar.empty()
+            # 6) Cleanup local temp
+            status.update(label="Cleaning up local files…", state="running")
+            shutil.rmtree(BACKUP_DIR)
+            BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
+            overall.progress(95)
 
-        # clean local temp
-        shutil.rmtree(BACKUP_DIR)
-        BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
+            # 7) Cache + finish
+            cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            latest_backup = {
+                "Name": fb_name_slug,
+                "Created On": datetime.now().strftime("%b %d, %Y"),
+                "# Posts": len(posts),
+                "Folder": folder_prefix.rstrip("/"),
+                "user_id": fb_id_val
+            }
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "fb_token": token,
+                    "latest_backup": latest_backup,
+                    "new_backup_done": True
+                }, f, indent=2)
 
-        cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        latest_backup = {
-            "Name": fb_name_slug,
-            "Created On": datetime.now().strftime("%b %d, %Y"),
-            "# Posts": len(posts),
-            "Folder": folder_prefix.rstrip("/"),
-            "user_id": fb_id_val
-        }
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "fb_token": token,
-                "latest_backup": latest_backup,
-                "new_backup_done": True
-            }, f, indent=2)
+            overall.progress(100)
+            status.update(label="Backup complete! 🎉", state="complete")
+            st.toast("✅ Backup complete! Your scrapbook is ready to preview.", icon="✅")
 
+        # finalize + rerun
         st.session_state.update({
             "fb_token": token,
             "new_backup_done": True,
             "latest_backup": latest_backup,
             "redirect_to_backups": True,
             "force_reload": True,
-            "show_creator": False,  # close creator after completion
+            "show_creator": False,    # close creator after completion
+            "backup_running": False,  # allow new runs
         })
-        st.success("✅ Backup complete! 🎉 Your scrapbook is ready to preview!")
         st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
