@@ -172,11 +172,11 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
   letter-spacing:.25px;
 }
 
-/* Primary buttons (Streamlit buttons) */
+/* Force dark text on all primary buttons (including Download buttons) */
 .stButton>button,
 .stDownloadButton button{
   background: var(--gold) !important;
-  color: var(--navy-900) !important;
+  color: #111 !important;                 /* <-- darker text */
   border: none !important;
   border-radius: 10px !important;
   padding: 10px 16px !important;
@@ -184,28 +184,30 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
   box-shadow: 0 4px 14px rgba(246,195,93,.22) !important;
   transition: transform .15s ease, filter .15s ease, box-shadow .15s ease !important;
 }
+
+/* Ensure inner spans/icons inherit the dark color */
+.stButton>button * ,
+.stDownloadButton button * {
+  color: #111 !important;
+  fill:  #111 !important;                 /* for SVG icons */
+}
+
+/* Hover state */
 .stButton>button:hover,
 .stDownloadButton button:hover{
   transform: translateY(-1px);
-  filter: brightness(.95);
+  filter: brightness(.97);
   box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
 }
 
-/* Tabs */
-div[data-testid="stTabs"]{
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
+/* (Optional) Disabled buttons still readable */
+.stButton>button:disabled,
+.stDownloadButton button:disabled{
+  opacity: .75 !important;
+  color: #222 !important;
 }
-div[data-testid="stTabs"] button{
-  color: var(--muted) !important;
-  background: transparent !important;
-  border: 0 !important;
-  padding-bottom: 10px !important;
-}
-div[data-testid="stTabs"] button[aria-selected="true"]{
-  color: var(--text) !important;
-  border-bottom: 3px solid var(--gold) !important;
-}
+
+
 
 /* Cards */
 .card{
