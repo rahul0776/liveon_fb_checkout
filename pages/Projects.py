@@ -298,26 +298,32 @@ def _render_steps(ph, steps):
 # ---- NEW: delete helper ----
 def delete_backup_prefix(prefix: str):
     """
-    Delete all blobs under a backup prefix like: '<fb_id>/<folder_name>'
+    Delete all blobs under a backup prefix like '<fb_id>/<folder_name>'.
+    Also include snapshots to avoid Azure 'conflict' errors.
     """
     try:
         blobs = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
         total = len(blobs)
-        with st.status(f"Deleting backup…", expanded=True) as s:
+        with st.status("Deleting backup…", expanded=True) as s:
             for i, b in enumerate(blobs, start=1):
                 try:
-                    container_client.delete_blob(b.name)
+                    # include snapshots so deletion succeeds even if snapshots exist
+                    container_client.delete_blob(b.name, delete_snapshots="include")
                 except Exception as e:
-                    if DEBUG: s.write(f"Failed to delete {b.name}: {e}")
+                    if DEBUG:
+                        s.write(f"Failed to delete {b.name}: {e}")
                 if i == 1 or i % 10 == 0 or i == total:
                     s.write(f"• Deleted {i}/{total}")
+
             s.update(label="Backup deleted", state="complete")
-        # Clear session cache if it was pointing at this folder
+
+        # Clear session cache if it pointed at this folder
         lb = st.session_state.get("latest_backup")
         if lb and lb.get("Folder", "").lower().rstrip("/") == prefix.lower().rstrip("/"):
             st.session_state.pop("latest_backup", None)
             st.session_state.pop("new_backup_done", None)
-        # Clear on-disk cache (soft reset)
+
+        # Soft-reset on-disk cache
         cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
         if cache_file.exists():
             try:
@@ -325,7 +331,9 @@ def delete_backup_prefix(prefix: str):
                     json.dump({"fb_token": st.session_state["fb_token"]}, f)
             except Exception:
                 pass
+
         st.toast("🗑️ Backup deleted.", icon="🗑️")
+
     except Exception as e:
         st.error(f"Delete failed: {e}")
 
@@ -571,7 +579,7 @@ if backups:
     st.divider()
 
     for backup in backups:
-        cols = st.columns([3, 1, 1, 1, 3])
+        cols = st.columns([3, 1, 1, 1.2, 3])  # widened the delete column a bit
         with cols[0]:
             st.markdown(f"**{backup['name']}**")
             st.caption(f"{backup['id']}")
@@ -581,11 +589,29 @@ if backups:
         with cols[2]:
             st.markdown(f"**{backup['date']}**")
             st.caption("Created")
+
+        # --- Delete cell (inline confirm) ---
         with cols[3]:
-            # small delete button
-            if st.button("❌", key=f"del_{backup['id']}", help="Delete this backup"):
-                st.session_state["confirm_delete_id"] = backup["id"]
-                st.rerun()
+            # If this row is NOT in confirm mode, show the ❌ button
+            if st.session_state.get("confirm_delete_id") != backup["id"]:
+                if st.button("❌", key=f"del_{backup['id']}", help="Delete this backup"):
+                    st.session_state["confirm_delete_id"] = backup["id"]
+                    st.rerun()
+            else:
+                # Inline confirmation UI
+                st.warning("Delete this backup?", icon="🗑️")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Yes, delete", key=f"yes_{backup['id']}"):
+                        delete_backup_prefix(backup["id"])
+                        st.session_state["confirm_delete_id"] = None
+                        st.session_state["force_reload"] = True
+                        st.rerun()
+                with c2:
+                    if st.button("Cancel", key=f"cancel_{backup['id']}"):
+                        st.session_state["confirm_delete_id"] = None
+                        st.rerun()
+
         with cols[4]:
             posts_blob_path = f"{backup['id']}/posts+cap.json"
             try:
@@ -618,23 +644,3 @@ else:
     """, unsafe_allow_html=True)
 
 # -----------------------
-# Delete confirmation panel
-# -----------------------
-confirm_id = st.session_state.get("confirm_delete_id")
-if confirm_id:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.error("Delete this backup permanently?")
-    st.caption(confirm_id)
-    c1, c2, c3 = st.columns([1,1,5])
-    with c1:
-        if st.button("🗑️ Delete permanently", type="primary"):
-            delete_backup_prefix(confirm_id)
-            st.session_state["confirm_delete_id"] = None
-            st.session_state["show_creator"] = False
-            st.session_state["force_reload"] = True
-            st.rerun()
-    with c2:
-        if st.button("Cancel", key="cancel_delete"):
-            st.session_state["confirm_delete_id"] = None
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
