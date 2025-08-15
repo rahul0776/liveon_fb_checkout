@@ -324,7 +324,6 @@ def list_user_backup_prefixes(user_id: str):
     return [p for p, _ in valid]
 
 def _delete_prefix_silent(prefix: str):
-    """Delete without UI chatter/toasts; used by enforcer."""
     try:
         to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
         for b in to_delete:
@@ -345,7 +344,6 @@ def enforce_single_backup(user_id: str):
         _delete_prefix_silent(pfx)
 
 def delete_backup_prefix(prefix: str):
-    """Delete with a toast; no status panel; no extra reruns."""
     try:
         to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
         for b in to_delete:
@@ -378,10 +376,7 @@ def delete_backup_prefix(prefix: str):
 backups = []
 try:
     user_id = str(st.session_state["fb_id"]).strip()
-
-    # Remove legacy extras quietly
     enforce_single_backup(user_id)
-
     prefixes = list_user_backup_prefixes(user_id)
     if prefixes:
         pfx = prefixes[0]
@@ -401,7 +396,6 @@ try:
                 })
             except Exception:
                 pass
-
     has_backup = len(backups) == 1
 except Exception as e:
     st.error(f"Azure connection error: {e}")
@@ -442,7 +436,7 @@ if not st.session_state["show_creator"]:
         else:
             if st.button("＋ New Backup", type="primary", use_container_width=True, key="new_backup_btn"):
                 st.session_state["show_creator"] = True
-                st.experimental_rerun()
+                st.rerun()   # CHANGED
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("📦 Create Facebook Backup")
@@ -574,7 +568,7 @@ else:
                 "show_creator": False,
                 "backup_running": False,
             })
-            st.experimental_rerun()
+            st.rerun()   # CHANGED
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -608,7 +602,7 @@ if backups:
             safe_id = backup["id"].replace("/", "__")
             if st.button("❌", key=f"del_{safe_id}", help="Delete this backup"):
                 delete_backup_prefix(backup["id"])
-                st.experimental_rerun()
+                st.rerun()   # CHANGED
 
         with cols[4]:
             posts_blob_path = f"{backup['id']}/posts+cap.json"
