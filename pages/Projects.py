@@ -165,6 +165,7 @@ button[data-testid="baseButton-secondary"].danger {
 button[data-testid="baseButton-secondary"].danger:hover{
   border-color:#ff8e8e !important; color:#ff9d9d !important;
 }
+            
 </style>
 """, unsafe_allow_html=True)
 
@@ -303,27 +304,23 @@ def delete_backup_prefix(prefix: str):
     """
     try:
         blobs = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
-        total = len(blobs)
-        with st.status("Deleting backup…", expanded=True) as s:
-            for i, b in enumerate(blobs, start=1):
+        # Simple spinner; no verbose status panel
+        with st.spinner("Deleting backup…"):
+            for b in blobs:
                 try:
-                    # include snapshots so deletion succeeds even if snapshots exist
                     container_client.delete_blob(b.name, delete_snapshots="include")
                 except Exception as e:
                     if DEBUG:
-                        s.write(f"Failed to delete {b.name}: {e}")
-                if i == 1 or i % 10 == 0 or i == total:
-                    s.write(f"• Deleted {i}/{total}")
+                        # keep silent in UI; only log when DEBUG
+                        st.write(f"Delete error on {b.name}: {e}")
 
-            s.update(label="Backup deleted", state="complete")
-
-        # Clear session cache if it pointed at this folder
+        # If session cache points to this backup, clear it
         lb = st.session_state.get("latest_backup")
-        if lb and lb.get("Folder", "").lower().rstrip("/") == prefix.lower().rstrip("/"):
+        if lb and str(lb.get("Folder", "")).lower().rstrip("/") == prefix.lower().rstrip("/"):
             st.session_state.pop("latest_backup", None)
             st.session_state.pop("new_backup_done", None)
 
-        # Soft-reset on-disk cache
+        # Soft-reset on-disk cache for this token
         cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
         if cache_file.exists():
             try:
@@ -333,9 +330,9 @@ def delete_backup_prefix(prefix: str):
                 pass
 
         st.toast("🗑️ Backup deleted.", icon="🗑️")
-
     except Exception as e:
         st.error(f"Delete failed: {e}")
+
 
 # -----------------------
 # Load existing backups (moved earlier so we can gate creation)
@@ -373,6 +370,9 @@ try:
             })
     seen = set()
     backups = [b for b in sorted(backups, key=lambda x: x["raw_date"], reverse=True) if not (b["id"] in seen or seen.add(b["id"]))]
+    # Keep just the most recent one in the UI
+    backups = backups[:1]
+    has_backup = len(backups) == 1
 except Exception as e:
     st.error(f"Azure connection error: {e}")
 
@@ -598,12 +598,13 @@ if backups:
                     st.session_state["confirm_delete_id"] = backup["id"]
                     st.rerun()
             else:
-                # Inline confirmation UI
-                st.warning("Delete this backup?", icon="🗑️")
-                c1, c2 = st.columns(2)
+                st.caption("Confirm delete?")
+                c1, c2 = st.columns([1, 1])
                 with c1:
                     if st.button("Yes, delete", key=f"yes_{backup['id']}"):
-                        delete_backup_prefix(backup["id"])
+                        # run with a spinner; helper is now silent
+                        with st.spinner("Deleting…"):
+                            delete_backup_prefix(backup["id"])
                         st.session_state["confirm_delete_id"] = None
                         st.session_state["force_reload"] = True
                         st.rerun()
