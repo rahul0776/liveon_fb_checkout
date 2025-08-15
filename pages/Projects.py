@@ -54,10 +54,9 @@ def restore_session():
 
 restore_session()
 
-# creator collapsed by default + running flag + delete modal
+# creator collapsed by default + running flag
 st.session_state.setdefault("show_creator", False)
 st.session_state.setdefault("backup_running", False)
-st.session_state.setdefault("confirm_delete_id", None)
 
 if st.session_state.pop("force_reload", False):
     st.rerun()
@@ -165,7 +164,6 @@ button[data-testid="baseButton-secondary"].danger {
 button[data-testid="baseButton-secondary"].danger:hover{
   border-color:#ff8e8e !important; color:#ff9d9d !important;
 }
-            
 </style>
 """, unsafe_allow_html=True)
 
@@ -289,7 +287,6 @@ def extract_image_urls(post):
     return list(urls)
 
 def _render_steps(ph, steps):
-    """Render a compact checklist in one place-holder."""
     lines = []
     for s in steps:
         icon = "✅" if s["done"] else ("⏳" if s.get("active") else "•")
@@ -332,7 +329,7 @@ def delete_backup_prefix(prefix: str):
         st.error(f"Delete failed: {e}")
 
 # -----------------------
-# Load existing backups (gate creation and display only the most recent)
+# Load existing backups (show only the most recent)
 # -----------------------
 backups = []
 try:
@@ -367,14 +364,13 @@ try:
             })
     seen = set()
     backups = [b for b in sorted(backups, key=lambda x: x["raw_date"], reverse=True) if not (b["id"] in seen or seen.add(b["id"]))]
-    # Show only the most recent backup in UI
-    backups = backups[:1]
+    backups = backups[:1]  # enforce one visible/active backup
     has_backup = len(backups) == 1
 except Exception as e:
     st.error(f"Azure connection error: {e}")
     has_backup = False
 
-# If we just finished a backup, inject it at the top (defensive)
+# If we just finished a backup, inject it (defensive)
 if st.session_state.pop("new_backup_done", False):
     latest = st.session_state.pop("latest_backup", None)
     if latest and str(latest.get("user_id")).strip() == str(fb_id).strip():
@@ -394,7 +390,7 @@ if st.session_state.pop("new_backup_done", False):
         has_backup = True
 
 # --------------------------------------------
-# Top section: show either the New Backup header or the Creator
+# Top section
 # --------------------------------------------
 if not st.session_state["show_creator"]:
     st.markdown(
@@ -411,7 +407,6 @@ if not st.session_state["show_creator"]:
                 st.session_state["show_creator"] = True
                 st.rerun()
 else:
-    # Creator card
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("📦 Create Facebook Backup")
     st.markdown("""<div class="instructions">
@@ -419,7 +414,6 @@ else:
     <ol><li><strong>Click "Start My Backup"</strong></li></ol>
     <em>Large backups may take several minutes.</em></div>""", unsafe_allow_html=True)
 
-    # Server-side guard: allow only when there is no existing backup
     if has_backup:
         st.warning("You already have an active backup. Delete it first.")
     else:
@@ -574,29 +568,14 @@ if backups:
             st.markdown(f"**{backup['date']}**")
             st.caption("Created")
 
-        # --- Delete cell (inline confirm) ---
+        # --- Delete cell (IMMEDIATE delete) ---
         with cols[3]:
-            # Use a safe key (avoid '/' in widget keys)
             safe_id = backup["id"].replace("/", "__")
-
-            if st.session_state.get("confirm_delete_id") != backup["id"]:
-                # Click X -> set state; Streamlit auto-reruns (no manual st.rerun needed)
-                if st.button("❌", key=f"del_{safe_id}", help="Delete this backup"):
-                    st.session_state["confirm_delete_id"] = backup["id"]
-            else:
-                st.caption("Confirm delete?")
-                c1, c2 = st.columns([1, 1])
-                with c1:
-                    if st.button("Yes, delete", key=f"yes_{safe_id}"):
-                        with st.spinner("Deleting…"):
-                            delete_backup_prefix(backup["id"])
-                        st.session_state["confirm_delete_id"] = None
-                        st.session_state["force_reload"] = True
-                        st.rerun()
-                with c2:
-                    if st.button("Cancel", key=f"cancel_{safe_id}"):
-                        st.session_state["confirm_delete_id"] = None
-                        st.rerun()
+            if st.button("❌", key=f"del_{safe_id}", help="Delete this backup"):
+                with st.spinner("Deleting…"):
+                    delete_backup_prefix(backup["id"])
+                st.session_state["force_reload"] = True
+                st.rerun()
 
         with cols[4]:
             posts_blob_path = f"{backup['id']}/posts+cap.json"
