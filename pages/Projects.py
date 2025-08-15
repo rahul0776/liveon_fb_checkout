@@ -78,7 +78,91 @@ if get_blob_service_client() is None:
 
 blob_service_client = get_blob_service_client()
 container_client = blob_service_client.get_container_client("backup")
+def list_user_backup_prefixes(user_id: str):
+    """
+    Return a list of "<user_id>/<folder_name>" prefixes that look like backups
+    (i.e., contain a summary.json and posts+cap.json).
+    """
+    prefixes = {}
+    # Index by folder -> created timestamp so we can sort newest-first
+    for blob in container_client.list_blobs(name_starts_with=f"{user_id}/"):
+        parts = blob.name.split("/")
+        if len(parts) < 3:
+            continue
+        uid, folder, filename = parts[0], parts[1], "/".join(parts[2:])
+        if uid != user_id or folder.startswith("projects/"):
+            continue
+        pfx = f"{uid}/{folder}"
+        rec = prefixes.setdefault(pfx, {"has_summary": False, "has_posts": False, "ts": None})
+        if filename == "summary.json":
+            try:
+                raw = container_client.get_blob_client(blob.name).download_blob().readall().decode("utf-8")
+                summary = json.loads(raw)
+                # Prefer the timestamp inside summary, fallback to blob properties
+                ts = summary.get("timestamp")
+                if ts:
+                    rec["ts"] = datetime.fromisoformat(ts)
+                else:
+                    rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
+            except Exception:
+                rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
+            rec["has_summary"] = True
+        elif filename == "posts+cap.json":
+            rec["has_posts"] = True
+    # keep only valid backup prefixes
+    valid = []
+    for pfx, info in prefixes.items():
+        if info["has_summary"] and info["has_posts"]:
+            valid.append((pfx, info["ts"] or datetime.now(timezone.utc)))
+    # newest first
+    valid.sort(key=lambda x: x[1], reverse=True)
+    return [p for p, _ in valid]
 
+
+def delete_backup_prefix(prefix: str):
+    """Delete all blobs under a backup prefix, snapshots included."""
+    try:
+        # List once to avoid paging/rerun confusion
+        to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
+        for b in to_delete:
+            try:
+                # more robust via per-blob client
+                container_client.get_blob_client(b.name).delete_blob(delete_snapshots="include")
+            except Exception as e:
+                if DEBUG:
+                    st.error(f"Delete error for {b.name}: {e}")
+
+        # clear session cache if pointed at this backup
+        lb = st.session_state.get("latest_backup")
+        if lb and str(lb.get("Folder", "")).lower().rstrip("/") == prefix.lower().rstrip("/"):
+            st.session_state.pop("latest_backup", None)
+            st.session_state.pop("new_backup_done", None)
+
+        # Soft-reset on-disk cache for this token
+        cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
+        if cache_file.exists():
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump({"fb_token": st.session_state["fb_token"]}, f)
+            except Exception:
+                pass
+
+        st.toast(f"🗑️ Deleted {prefix}", icon="🗑️")
+    except Exception as e:
+        st.error(f"Delete failed: {e}")
+
+
+def enforce_single_backup(user_id: str):
+    """
+    Guarantee at most one backup exists for the user.
+    Keeps the newest prefix and deletes all others.
+    """
+    prefixes = list_user_backup_prefixes(user_id)
+    if len(prefixes) <= 1:
+        return
+    # keep newest (index 0), delete everything else
+    for pfx in prefixes[1:]:
+        delete_backup_prefix(pfx)
 # ---------------------------------------
 # Fb profile (ensures name/id in session)
 # ---------------------------------------
@@ -334,37 +418,37 @@ def delete_backup_prefix(prefix: str):
 backups = []
 try:
     user_id = str(st.session_state["fb_id"]).strip()
-    with st.spinner("🔄 Loading your backups…"):
-        for blob in container_client.list_blobs(name_starts_with=f"{user_id}/"):
-            if not blob.name.endswith("summary.json"):
-                continue
-            parts = blob.name.split("/")
-            if len(parts) < 3:
-                continue
-            folder_fb_id, folder_name = parts[0].strip(), parts[1].strip()
-            if folder_fb_id != user_id or folder_name.startswith("projects/"):
-                continue
+
+    # 1) Gather valid prefixes (newest-first)
+    prefixes = list_user_backup_prefixes(user_id)
+
+    # 2) Enforce the rule: keep only the newest, delete others
+    if len(prefixes) > 1:
+        enforce_single_backup(user_id)
+        # refresh the list after enforcement
+        prefixes = list_user_backup_prefixes(user_id)
+
+    # 3) Build UI rows for the (single) remaining prefix, if any
+    if prefixes:
+        pfx = prefixes[0]
+        # read summary for display
+        summary_blob = container_client.get_blob_client(f"{pfx}/summary.json")
+        posts_blob = container_client.get_blob_client(f"{pfx}/posts+cap.json")
+        if summary_blob.exists() and posts_blob.exists():
             try:
-                summary = json.loads(container_client.get_blob_client(blob.name).download_blob().readall().decode("utf-8"))
+                summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
+                created_dt = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
+                backups.append({
+                    "id": pfx,
+                    "name": summary.get("user") or pfx.split("/", 1)[1].replace("_", " "),
+                    "date": created_dt.strftime("%b %d, %Y"),
+                    "posts": summary.get("posts", 0),
+                    "status": "Completed",
+                    "raw_date": created_dt
+                })
             except Exception:
-                continue
-            if str(summary.get("user_id", "")).strip() != user_id:
-                continue
-            posts_blob = container_client.get_blob_client(f"{folder_fb_id}/{folder_name}/posts+cap.json")
-            if not posts_blob.exists():
-                continue
-            created_dt = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
-            backups.append({
-                "id": f"{folder_fb_id}/{folder_name}",
-                "name": summary.get("user") or folder_name.replace("_", " "),
-                "date": created_dt.strftime("%b %d, %Y"),
-                "posts": summary.get("posts", 0),
-                "status": "Completed",
-                "raw_date": created_dt
-            })
-    seen = set()
-    backups = [b for b in sorted(backups, key=lambda x: x["raw_date"], reverse=True) if not (b["id"] in seen or seen.add(b["id"]))]
-    backups = backups[:1]  # enforce one visible/active backup
+                pass
+
     has_backup = len(backups) == 1
 except Exception as e:
     st.error(f"Azure connection error: {e}")
