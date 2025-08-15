@@ -143,7 +143,33 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
 .empty-state-icon{ font-size:48px; margin-bottom:16px; color: var(--gold); }
 .stProgress [role="progressbar"] > div{ background: var(--gold) !important; }
 input, textarea, select{ background: rgba(255,255,255,.06) !important; border:1px solid var(--line) !important; color: var(--text) !important; border-radius:10px !important; }
-</style>
+/* Neat status panel */
+div[data-testid="stStatus"]{
+  background: rgba(255,255,255,.06) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  padding: 16px 18px !important;
+  margin: 12px 0 8px 0 !important;
+}
+
+/* Compact status text */
+div[data-testid="stStatus"] .stMarkdown p{
+  margin: 6px 0 !important;
+}
+
+/* Optional: a little divider under the bar for separation */
+div[data-testid="stStatus"] hr{
+  border: none; height: 1px; background: var(--line); margin: 8px 0;
+}
+
+/* Checklist typography */
+.progress-steps{
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.95rem;
+}
+
+            </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
@@ -265,6 +291,14 @@ def extract_image_urls(post):
             add(m.get("src"))
     return list(urls)
 
+def _render_steps(ph, steps):
+    """Render a compact checklist in one place-holder."""
+    lines = []
+    for s in steps:
+        icon = "✅" if s["done"] else ("⏳" if s.get("active") else "•")
+        lines.append(f"{icon} {s['label']}")
+    ph.markdown("<div class='progress-steps'>" + "<br/>".join(lines) + "</div>", unsafe_allow_html=True)
+
 # --------------------------------------------
 # Top section: show either the New Backup header or the Creator
 # --------------------------------------------
@@ -303,19 +337,32 @@ else:
         st.toast("Starting your backup…", icon="🟡")
 
         # overall progress + narrated status
-        overall = st.progress(0)
-        with st.status("Preparing to start…", state="running", expanded=True) as status:
+# Single overall progress bar with label text
+        overall = st.progress(0, text="Preparing to start…")
+
+        with st.status("Working on your backup…", state="running", expanded=True) as status:
+            steps = [
+                {"label": "Fetched posts", "done": False},
+                {"label": "Processed posts & captions", "done": False},
+                {"label": "Files prepared", "done": False},
+                {"label": "Uploaded backup folder", "done": False},
+                {"label": "ZIP uploaded", "done": False},
+                {"label": "Cleanup complete", "done": False},
+            ]
+            step_ph = st.empty()  # one place to render the checklist
+            _render_steps(step_ph, steps)
+
             # 1) Fetch posts
-            status.update(label="Fetching your Facebook posts…", state="running")
+            steps[0]["active"] = True; _render_steps(step_ph, steps)
             posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
             for post in posts:
                 post["images"] = extract_image_urls(post)
             save_json(posts, "posts")
-            overall.progress(20)
-            status.write(f"• Fetched {len(posts)} posts")
+            steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(20, text=f"Fetched {len(posts)} posts")
 
-            # 2) Download images & generate captions
-            status.update(label="Downloading images & generating captions…", state="running")
+            # 2) Download images & captions (no extra bar; keep UI clean)
+            steps[1]["active"] = True; _render_steps(step_ph, steps)
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 futures = []
                 for post in posts:
@@ -334,55 +381,56 @@ else:
                         post["picture"] = "download failed"
                         post["context_caption"] = f"Image download failed: {e}"
 
-                sub = st.progress(0)   # sub-progress for captioning
                 total = max(1, len(futures))
-                for i, (post, fut) in enumerate(futures, start=1):
+                done_count = 0
+                for post, fut in futures:
                     try:
                         post["context_caption"] = fut.result()
                     except Exception:
                         post["context_caption"] = "caption failed"
-                    sub.progress(i / total)
-            overall.progress(50)
-            status.write(f"• Processed {len(posts)} posts with images")
+                    done_count += 1
+                    # light-weight increment on the single bar's text (no second bar)
+                    pct = 20 + int(25 * (done_count / total))  # 20 -> 45
+                    overall.progress(pct, text=f"Processing images & captions… ({done_count}/{total})")
 
-            # 3) Save files locally
-            status.update(label="Saving backup files…", state="running")
+            steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(45, text="Images & captions processed")
+
+            # 3) Save files
+            steps[2]["active"] = True; _render_steps(step_ph, steps)
             save_json(posts, "posts+cap")
             save_json({"comments": []}, "comments.json")
             save_json({"likes": []}, "likes.json")
             save_json({"videos": []}, "videos.json")
             save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json")
-            summary = {
-                "user": fb_name_slug, "user_id": fb_id_val,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "posts": len(posts)
-            }
+            summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts)}
             save_json(summary, "summary")
-            overall.progress(65)
-            status.write("• Files prepared")
+            steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(60, text="Files prepared")
 
             # 4) Upload to Azure
-            status.update(label="Uploading backup to Azure…", state="running")
+            steps[3]["active"] = True; _render_steps(step_ph, steps)
             upload_folder(BACKUP_DIR, folder_prefix)
-            overall.progress(85)
-            status.write("• Uploaded backup folder")
+            steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(80, text="Uploaded backup folder")
 
-            # 5) Create + upload zip
-            status.update(label="Creating ZIP archive…", state="running")
+            # 5) Zip upload
+            steps[4]["active"] = True; _render_steps(step_ph, steps)
             zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
             with open(zip_path, "rb") as f:
                 container = blob_service_client.get_container_client(CONTAINER)
                 container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
-            overall.progress(92)
-            status.write("• ZIP uploaded")
+            steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(90, text="ZIP uploaded")
 
             # 6) Cleanup local temp
-            status.update(label="Cleaning up local files…", state="running")
+            steps[5]["active"] = True; _render_steps(step_ph, steps)
             shutil.rmtree(BACKUP_DIR)
             BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
-            overall.progress(95)
+            steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
+            overall.progress(95, text="Cleanup complete")
 
-            # 7) Cache + finish
+            # Cache + finish
             cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             latest_backup = {
@@ -393,13 +441,9 @@ else:
                 "user_id": fb_id_val
             }
             with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump({
-                    "fb_token": token,
-                    "latest_backup": latest_backup,
-                    "new_backup_done": True
-                }, f, indent=2)
+                json.dump({"fb_token": token, "latest_backup": latest_backup, "new_backup_done": True}, f, indent=2)
 
-            overall.progress(100)
+            overall.progress(100, text="Backup complete! 🎉")
             status.update(label="Backup complete! 🎉", state="complete")
             st.toast("✅ Backup complete! Your scrapbook is ready to preview.", icon="✅")
 
@@ -507,7 +551,7 @@ if backups:
                 blob_client.get_blob_properties()
                 blob_data = blob_client.download_blob().readall()
                 st.download_button(
-                    label="📥 Download the Backup",
+                    label="📥 Download the Backup $9.99",
                     data=blob_data,
                     file_name=f"{backup['id'].replace('/', '_')}.json",
                     mime="application/json",
