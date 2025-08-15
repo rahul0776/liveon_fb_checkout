@@ -58,9 +58,6 @@ restore_session()
 st.session_state.setdefault("show_creator", False)
 st.session_state.setdefault("backup_running", False)
 
-if st.session_state.pop("force_reload", False):
-    st.rerun()
-
 for key in ["fb_token", "fb_id", "fb_name"]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -78,91 +75,7 @@ if get_blob_service_client() is None:
 
 blob_service_client = get_blob_service_client()
 container_client = blob_service_client.get_container_client("backup")
-def list_user_backup_prefixes(user_id: str):
-    """
-    Return a list of "<user_id>/<folder_name>" prefixes that look like backups
-    (i.e., contain a summary.json and posts+cap.json).
-    """
-    prefixes = {}
-    # Index by folder -> created timestamp so we can sort newest-first
-    for blob in container_client.list_blobs(name_starts_with=f"{user_id}/"):
-        parts = blob.name.split("/")
-        if len(parts) < 3:
-            continue
-        uid, folder, filename = parts[0], parts[1], "/".join(parts[2:])
-        if uid != user_id or folder.startswith("projects/"):
-            continue
-        pfx = f"{uid}/{folder}"
-        rec = prefixes.setdefault(pfx, {"has_summary": False, "has_posts": False, "ts": None})
-        if filename == "summary.json":
-            try:
-                raw = container_client.get_blob_client(blob.name).download_blob().readall().decode("utf-8")
-                summary = json.loads(raw)
-                # Prefer the timestamp inside summary, fallback to blob properties
-                ts = summary.get("timestamp")
-                if ts:
-                    rec["ts"] = datetime.fromisoformat(ts)
-                else:
-                    rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
-            except Exception:
-                rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
-            rec["has_summary"] = True
-        elif filename == "posts+cap.json":
-            rec["has_posts"] = True
-    # keep only valid backup prefixes
-    valid = []
-    for pfx, info in prefixes.items():
-        if info["has_summary"] and info["has_posts"]:
-            valid.append((pfx, info["ts"] or datetime.now(timezone.utc)))
-    # newest first
-    valid.sort(key=lambda x: x[1], reverse=True)
-    return [p for p, _ in valid]
 
-
-def delete_backup_prefix(prefix: str):
-    """Delete all blobs under a backup prefix, snapshots included."""
-    try:
-        # List once to avoid paging/rerun confusion
-        to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
-        for b in to_delete:
-            try:
-                # more robust via per-blob client
-                container_client.get_blob_client(b.name).delete_blob(delete_snapshots="include")
-            except Exception as e:
-                if DEBUG:
-                    st.error(f"Delete error for {b.name}: {e}")
-
-        # clear session cache if pointed at this backup
-        lb = st.session_state.get("latest_backup")
-        if lb and str(lb.get("Folder", "")).lower().rstrip("/") == prefix.lower().rstrip("/"):
-            st.session_state.pop("latest_backup", None)
-            st.session_state.pop("new_backup_done", None)
-
-        # Soft-reset on-disk cache for this token
-        cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
-        if cache_file.exists():
-            try:
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump({"fb_token": st.session_state["fb_token"]}, f)
-            except Exception:
-                pass
-
-        st.toast(f"🗑️ Deleted {prefix}", icon="🗑️")
-    except Exception as e:
-        st.error(f"Delete failed: {e}")
-
-
-def enforce_single_backup(user_id: str):
-    """
-    Guarantee at most one backup exists for the user.
-    Keeps the newest prefix and deletes all others.
-    """
-    prefixes = list_user_backup_prefixes(user_id)
-    if len(prefixes) <= 1:
-        return
-    # keep newest (index 0), delete everything else
-    for pfx in prefixes[1:]:
-        delete_backup_prefix(pfx)
 # ---------------------------------------
 # Fb profile (ensures name/id in session)
 # ---------------------------------------
@@ -377,29 +290,76 @@ def _render_steps(ph, steps):
         lines.append(f"{icon} {s['label']}")
     ph.markdown("<div class='progress-steps'>" + "<br/>".join(lines) + "</div>", unsafe_allow_html=True)
 
-# ---- Delete helper (silent; spinner + toast only) ----
-def delete_backup_prefix(prefix: str):
-    """
-    Delete all blobs under a backup prefix like '<fb_id>/<folder_name>'.
-    Also include snapshots to avoid Azure 'conflict' errors.
-    """
-    try:
-        blobs = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
-        with st.spinner("Deleting backup…"):
-            for b in blobs:
-                try:
-                    container_client.delete_blob(b.name, delete_snapshots="include")
-                except Exception as e:
-                    if DEBUG:
-                        st.write(f"Delete error on {b.name}: {e}")
+# ---------- Backup prefix helpers ----------
+def list_user_backup_prefixes(user_id: str):
+    prefixes = {}
+    for blob in container_client.list_blobs(name_starts_with=f"{user_id}/"):
+        parts = blob.name.split("/")
+        if len(parts) < 3:
+            continue
+        uid, folder, filename = parts[0], parts[1], "/".join(parts[2:])
+        if uid != user_id or folder.startswith("projects/"):
+            continue
+        pfx = f"{uid}/{folder}"
+        rec = prefixes.setdefault(pfx, {"has_summary": False, "has_posts": False, "ts": None})
+        if filename == "summary.json":
+            try:
+                raw = container_client.get_blob_client(blob.name).download_blob().readall().decode("utf-8")
+                summary = json.loads(raw)
+                ts = summary.get("timestamp")
+                if ts:
+                    rec["ts"] = datetime.fromisoformat(ts)
+                else:
+                    rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
+            except Exception:
+                rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
+            rec["has_summary"] = True
+        elif filename == "posts+cap.json":
+            rec["has_posts"] = True
+    valid = []
+    for pfx, info in prefixes.items():
+        if info["has_summary"] and info["has_posts"]:
+            valid.append((pfx, info["ts"] or datetime.now(timezone.utc)))
+    valid.sort(key=lambda x: x[1], reverse=True)
+    return [p for p, _ in valid]
 
-        # If session cache points to this backup, clear it
+def _delete_prefix_silent(prefix: str):
+    """Delete without UI chatter/toasts; used by enforcer."""
+    try:
+        to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
+        for b in to_delete:
+            try:
+                container_client.get_blob_client(b.name).delete_blob(delete_snapshots="include")
+            except Exception:
+                if DEBUG:
+                    st.write(f"Silent delete error for {b.name}")
+    except Exception as e:
+        if DEBUG:
+            st.write(f"Silent delete failed: {e}")
+
+def enforce_single_backup(user_id: str):
+    prefixes = list_user_backup_prefixes(user_id)
+    if len(prefixes) <= 1:
+        return
+    for pfx in prefixes[1:]:
+        _delete_prefix_silent(pfx)
+
+def delete_backup_prefix(prefix: str):
+    """Delete with a toast; no status panel; no extra reruns."""
+    try:
+        to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
+        for b in to_delete:
+            try:
+                container_client.get_blob_client(b.name).delete_blob(delete_snapshots="include")
+            except Exception as e:
+                if DEBUG:
+                    st.write(f"Delete error for {b.name}: {e}")
+
         lb = st.session_state.get("latest_backup")
         if lb and str(lb.get("Folder", "")).lower().rstrip("/") == prefix.lower().rstrip("/"):
             st.session_state.pop("latest_backup", None)
             st.session_state.pop("new_backup_done", None)
 
-        # Soft-reset on-disk cache for this token
         cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
         if cache_file.exists():
             try:
@@ -408,30 +368,23 @@ def delete_backup_prefix(prefix: str):
             except Exception:
                 pass
 
-        st.toast("🗑️ Backup deleted.", icon="🗑️")
+        st.toast(f"🗑️ Deleted {prefix}", icon="🗑️")
     except Exception as e:
         st.error(f"Delete failed: {e}")
 
 # -----------------------
-# Load existing backups (show only the most recent)
+# Load existing backups (show only the most recent) + enforce single
 # -----------------------
 backups = []
 try:
     user_id = str(st.session_state["fb_id"]).strip()
 
-    # 1) Gather valid prefixes (newest-first)
+    # Remove legacy extras quietly
+    enforce_single_backup(user_id)
+
     prefixes = list_user_backup_prefixes(user_id)
-
-    # 2) Enforce the rule: keep only the newest, delete others
-    if len(prefixes) > 1:
-        enforce_single_backup(user_id)
-        # refresh the list after enforcement
-        prefixes = list_user_backup_prefixes(user_id)
-
-    # 3) Build UI rows for the (single) remaining prefix, if any
     if prefixes:
         pfx = prefixes[0]
-        # read summary for display
         summary_blob = container_client.get_blob_client(f"{pfx}/summary.json")
         posts_blob = container_client.get_blob_client(f"{pfx}/posts+cap.json")
         if summary_blob.exists() and posts_blob.exists():
@@ -489,7 +442,7 @@ if not st.session_state["show_creator"]:
         else:
             if st.button("＋ New Backup", type="primary", use_container_width=True, key="new_backup_btn"):
                 st.session_state["show_creator"] = True
-                st.rerun()
+                st.experimental_rerun()
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("📦 Create Facebook Backup")
@@ -618,12 +571,10 @@ else:
                 "fb_token": token,
                 "new_backup_done": True,
                 "latest_backup": latest_backup,
-                "redirect_to_backups": True,
-                "force_reload": True,
                 "show_creator": False,
                 "backup_running": False,
             })
-            st.rerun()
+            st.experimental_rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -652,14 +603,12 @@ if backups:
             st.markdown(f"**{backup['date']}**")
             st.caption("Created")
 
-        # --- Delete cell (IMMEDIATE delete) ---
+        # Immediate delete (one rerun only)
         with cols[3]:
             safe_id = backup["id"].replace("/", "__")
             if st.button("❌", key=f"del_{safe_id}", help="Delete this backup"):
-                with st.spinner("Deleting…"):
-                    delete_backup_prefix(backup["id"])
-                st.session_state["force_reload"] = True
-                st.rerun()
+                delete_backup_prefix(backup["id"])
+                st.experimental_rerun()
 
         with cols[4]:
             posts_blob_path = f"{backup['id']}/posts+cap.json"
