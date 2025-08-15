@@ -296,7 +296,7 @@ def _render_steps(ph, steps):
         lines.append(f"{icon} {s['label']}")
     ph.markdown("<div class='progress-steps'>" + "<br/>".join(lines) + "</div>", unsafe_allow_html=True)
 
-# ---- NEW: delete helper ----
+# ---- Delete helper (silent; spinner + toast only) ----
 def delete_backup_prefix(prefix: str):
     """
     Delete all blobs under a backup prefix like '<fb_id>/<folder_name>'.
@@ -304,14 +304,12 @@ def delete_backup_prefix(prefix: str):
     """
     try:
         blobs = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
-        # Simple spinner; no verbose status panel
         with st.spinner("Deleting backup…"):
             for b in blobs:
                 try:
                     container_client.delete_blob(b.name, delete_snapshots="include")
                 except Exception as e:
                     if DEBUG:
-                        # keep silent in UI; only log when DEBUG
                         st.write(f"Delete error on {b.name}: {e}")
 
         # If session cache points to this backup, clear it
@@ -333,9 +331,8 @@ def delete_backup_prefix(prefix: str):
     except Exception as e:
         st.error(f"Delete failed: {e}")
 
-
 # -----------------------
-# Load existing backups (moved earlier so we can gate creation)
+# Load existing backups (gate creation and display only the most recent)
 # -----------------------
 backups = []
 try:
@@ -370,13 +367,12 @@ try:
             })
     seen = set()
     backups = [b for b in sorted(backups, key=lambda x: x["raw_date"], reverse=True) if not (b["id"] in seen or seen.add(b["id"]))]
-    # Keep just the most recent one in the UI
+    # Show only the most recent backup in UI
     backups = backups[:1]
     has_backup = len(backups) == 1
 except Exception as e:
     st.error(f"Azure connection error: {e}")
-
-has_backup = len(backups) >= 1
+    has_backup = False
 
 # If we just finished a backup, inject it at the top (defensive)
 if st.session_state.pop("new_backup_done", False):
@@ -399,7 +395,6 @@ if st.session_state.pop("new_backup_done", False):
 
 # --------------------------------------------
 # Top section: show either the New Backup header or the Creator
-# (Creation is hidden when a backup already exists)
 # --------------------------------------------
 if not st.session_state["show_creator"]:
     st.markdown(
@@ -407,7 +402,6 @@ if not st.session_state["show_creator"]:
         "<p style='color:var(--muted); margin-top:-4px;'>Create or download your Facebook backups.</p>",
         unsafe_allow_html=True,
     )
-
     left_btn_col, _ = st.columns([1, 3])
     with left_btn_col:
         if has_backup:
@@ -438,11 +432,9 @@ else:
         start_disabled = st.session_state.get("backup_running", False)
 
         if st.button("⬇️ Start My Backup", disabled=start_disabled):
-            # mark running, show toast
             st.session_state["backup_running"] = True
             st.toast("Starting your backup…", icon="🟡")
 
-            # overall progress + narrated status
             overall = st.progress(0, text="Preparing to start…")
 
             with st.status("Working on your backup…", state="running", expanded=True) as status:
@@ -454,10 +446,9 @@ else:
                     {"label": "ZIP uploaded", "done": False},
                     {"label": "Cleanup complete", "done": False},
                 ]
-                step_ph = st.empty()  # one place to render the checklist
+                step_ph = st.empty()
                 _render_steps(step_ph, steps)
 
-                # 1) Fetch posts
                 steps[0]["active"] = True; _render_steps(step_ph, steps)
                 posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
                 for post in posts:
@@ -466,7 +457,6 @@ else:
                 steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(20, text=f"Fetched {len(posts)} posts")
 
-                # 2) Download images & captions
                 steps[1]["active"] = True; _render_steps(step_ph, steps)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     futures = []
@@ -494,13 +484,12 @@ else:
                         except Exception:
                             post["context_caption"] = "caption failed"
                         done_count += 1
-                        pct = 20 + int(25 * (done_count / total))  # 20 -> 45
+                        pct = 20 + int(25 * (done_count / total))
                         overall.progress(pct, text=f"Processing images & captions… ({done_count}/{total})")
 
                 steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(45, text="Images & captions processed")
 
-                # 3) Save files
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
                 save_json(posts, "posts+cap")
                 save_json({"comments": []}, "comments.json")
@@ -512,13 +501,11 @@ else:
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(60, text="Files prepared")
 
-                # 4) Upload to Azure
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
                 upload_folder(BACKUP_DIR, folder_prefix)
                 steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(80, text="Uploaded backup folder")
 
-                # 5) Zip upload
                 steps[4]["active"] = True; _render_steps(step_ph, steps)
                 zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
                 with open(zip_path, "rb") as f:
@@ -527,14 +514,12 @@ else:
                 steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(90, text="ZIP uploaded")
 
-                # 6) Cleanup local temp
                 steps[5]["active"] = True; _render_steps(step_ph, steps)
                 shutil.rmtree(BACKUP_DIR)
                 BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
                 steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(95, text="Cleanup complete")
 
-                # Cache + finish
                 cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
                 cache_file.parent.mkdir(parents=True, exist_ok=True)
                 latest_backup = {
@@ -551,15 +536,14 @@ else:
                 status.update(label="Backup complete! 🎉", state="complete")
                 st.toast("✅ Backup complete! Your scrapbook is ready to preview.", icon="✅")
 
-            # finalize + rerun
             st.session_state.update({
                 "fb_token": token,
                 "new_backup_done": True,
                 "latest_backup": latest_backup,
                 "redirect_to_backups": True,
                 "force_reload": True,
-                "show_creator": False,    # close creator after completion
-                "backup_running": False,  # allow new runs
+                "show_creator": False,
+                "backup_running": False,
             })
             st.rerun()
 
@@ -579,7 +563,7 @@ if backups:
     st.divider()
 
     for backup in backups:
-        cols = st.columns([3, 1, 1, 1.2, 3])  # widened the delete column a bit
+        cols = st.columns([3, 1, 1, 1.2, 3])
         with cols[0]:
             st.markdown(f"**{backup['name']}**")
             st.caption(f"{backup['id']}")
@@ -592,24 +576,25 @@ if backups:
 
         # --- Delete cell (inline confirm) ---
         with cols[3]:
-            # If this row is NOT in confirm mode, show the ❌ button
+            # Use a safe key (avoid '/' in widget keys)
+            safe_id = backup["id"].replace("/", "__")
+
             if st.session_state.get("confirm_delete_id") != backup["id"]:
-                if st.button("❌", key=f"del_{backup['id']}", help="Delete this backup"):
+                # Click X -> set state; Streamlit auto-reruns (no manual st.rerun needed)
+                if st.button("❌", key=f"del_{safe_id}", help="Delete this backup"):
                     st.session_state["confirm_delete_id"] = backup["id"]
-                    st.rerun()
             else:
                 st.caption("Confirm delete?")
                 c1, c2 = st.columns([1, 1])
                 with c1:
-                    if st.button("Yes, delete", key=f"yes_{backup['id']}"):
-                        # run with a spinner; helper is now silent
+                    if st.button("Yes, delete", key=f"yes_{safe_id}"):
                         with st.spinner("Deleting…"):
                             delete_backup_prefix(backup["id"])
                         st.session_state["confirm_delete_id"] = None
                         st.session_state["force_reload"] = True
                         st.rerun()
                 with c2:
-                    if st.button("Cancel", key=f"cancel_{backup['id']}"):
+                    if st.button("Cancel", key=f"cancel_{safe_id}"):
                         st.session_state["confirm_delete_id"] = None
                         st.rerun()
 
@@ -629,7 +614,7 @@ if backups:
             except Exception:
                 st.caption("No posts file available to download.")
 
-            if st.button("📘 Generate Memories", key=f"mem_{backup['id']}", type="primary"):
+            if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
                 st.session_state["selected_backup"] = backup['id']
                 st.switch_page("pages/FbMemories.py")
 
@@ -643,5 +628,3 @@ else:
         <p>Create your first backup to get started.</p>
     </div>
     """, unsafe_allow_html=True)
-
-# -----------------------
