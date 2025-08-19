@@ -215,15 +215,30 @@ def save_json(obj, name):
 
 def upload_folder(BACKUP_DIR, blob_prefix):
     container = blob_service_client.get_container_client(CONTAINER)
-    try: container.create_container()
-    except Exception: pass
-    for root, _, files in os.walk(BACKUP_DIR):
-        for file in files:
+    try:
+        container.create_container()
+    except Exception:
+        pass
+
+    # Collect files first
+    files = []
+    for root, _, filenames in os.walk(BACKUP_DIR):
+        for file in filenames:
             local_path = Path(root) / file
             relative_path = str(local_path.relative_to(BACKUP_DIR))
             blob_path = f"{blob_prefix}/{relative_path}".replace("\\", "/")
-            with open(local_path, "rb") as f:
-                container.get_blob_client(blob_path).upload_blob(f, overwrite=True)
+            files.append((local_path, blob_path))
+
+    # Ensure posts+cap.json is uploaded LAST (this is what the worker should process)
+    def _order(t):
+        _, blob_path = t
+        return 1 if blob_path.endswith("posts+cap.json") else 0
+    files.sort(key=_order)
+
+    # Upload
+    for local_path, blob_path in files:
+        with open(local_path, "rb") as f:
+            container.get_blob_client(blob_path).upload_blob(f, overwrite=True)
 
 def download_image(url, name_id):
     ext = url.split(".")[-1].split("?")[0]
@@ -528,6 +543,35 @@ else:
 
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
                 upload_folder(BACKUP_DIR, folder_prefix)
+                # ── NEW: wait for worker's summary ─────────────────────────────
+                results_prefix = "results"
+                result_blob_name = f"{results_prefix}/{folder_prefix}/posts+cap.summary.json"
+                cc = blob_service_client.get_container_client(CONTAINER)
+                result_bc = cc.get_blob_client(result_blob_name)
+
+                overall.progress(85, text="Waiting for AI summary from worker…")
+                wait_seconds = 60  # adjust if you like
+                found = False
+                for _ in range(wait_seconds):
+                    try:
+                        if result_bc.exists():
+                            found = True
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(1)
+
+                worker_summary = None
+                if found:
+                    try:
+                        worker_summary = json.loads(result_bc.download_blob().readall().decode("utf-8")).get("summary", "")
+                        st.success("✅ AI summary ready!")
+                        st.markdown(f"**Preview:**\n\n{worker_summary[:1200]}{'…' if len(worker_summary) > 1200 else ''}")
+                    except Exception as e:
+                        st.warning(f"Could not read worker result: {e}")
+                else:
+                    st.info("The background worker is still generating the summary. It will appear shortly in your results folder.")
+
                 steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(80, text="Uploaded backup folder")
 
