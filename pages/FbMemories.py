@@ -341,9 +341,15 @@ for i in range(3):
 
 
 # ── CONSTANTS ────────────────────────────────────────────────
-FUNCTION_BASE = st.secrets.get("FUNCTION_BASE", os.environ.get("FUNCTION_BASE", "http://localhost:7071/api"))
-if FUNCTION_BASE.startswith("http://localhost"):
-    st.warning("FUNCTION_BASE is pointing to localhost. Set FUNCTION_BASE in secrets to your deployed Functions base URL.")
+FUNCTION_BASE = st.secrets.get(
+    "FUNCTION_BASE",
+    os.environ.get("FUNCTION_BASE", "https://liveon-func-app3.azurewebsites.net/api")
+)
+
+if "azurewebsites.net" not in FUNCTION_BASE:
+    st.warning("⚠️ FUNCTION_BASE is not pointing to your deployed Function App. "
+               "Set FUNCTION_BASE in secrets to your deployed Functions base URL.")
+
 
 CONNECT_STR   = st.secrets["AZURE_CONNECTION_STRING"]
 CONTAINER     = "backup"
