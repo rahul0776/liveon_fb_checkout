@@ -343,7 +343,7 @@ for i in range(3):
 # ── CONSTANTS ────────────────────────────────────────────────
 FUNCTION_BASE = st.secrets.get(
     "FUNCTION_BASE",
-    os.environ.get("FUNCTION_BASE", "https://liveon-func-app3.azurewebsites.net/api")
+    os.environ.get("FUNCTION_BASE", "https://test0776.azurewebsites.net/api")
 )
 
 if "azurewebsites.net" not in FUNCTION_BASE:
