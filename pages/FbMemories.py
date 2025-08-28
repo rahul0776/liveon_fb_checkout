@@ -341,6 +341,7 @@ for i in range(3):
 
 
 # ── CONSTANTS ────────────────────────────────────────────────
+# ── CONSTANTS ────────────────────────────────────────────────
 FUNCTION_BASE = st.secrets.get(
     "FUNCTION_BASE",
     os.environ.get("FUNCTION_BASE", "https://test0776.azurewebsites.net/api")
@@ -349,7 +350,6 @@ FUNCTION_BASE = st.secrets.get(
 if "azurewebsites.net" not in FUNCTION_BASE:
     st.warning("⚠️ FUNCTION_BASE is not pointing to your deployed Function App. "
                "Set FUNCTION_BASE in secrets to your deployed Functions base URL.")
-
 
 CONNECT_STR   = st.secrets["AZURE_CONNECTION_STRING"]
 CONTAINER     = "backup"
