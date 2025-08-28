@@ -147,21 +147,21 @@ def make_safe_key(chap, idx, img_url):
     base = f"{chap}_{idx}_{img_url}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
-def sign_blob_url(blob_path: str) -> str:
-    try:
-        account_name = blob_service_client.account_name
-        sas = generate_blob_sas(
-            account_name=account_name,
-            container_name=CONTAINER,
-            blob_name=blob_path,
-            account_key=blob_service_client.credential.account_key,
-            permission=BlobSasPermissions(read=True),
-            expiry=datetime.utcnow() + timedelta(hours=24)
-        ) 
-        return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote(blob_path, safe='/')}?{sas}"
+# def sign_blob_url(blob_path: str) -> str:
+#     try:
+#         account_name = blob_service_client.account_name
+#         sas = generate_blob_sas(
+#             account_name=account_name,
+#             container_name=CONTAINER,
+#             blob_name=blob_path,
+#             account_key=blob_service_client.credential.account_key,
+#             permission=BlobSasPermissions(read=True),
+#             expiry=datetime.utcnow() + timedelta(hours=24)
+#         ) 
+#         return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote(blob_path, safe='/')}?{sas}"
 
-    except Exception as e:
-        return "https://via.placeholder.com/600x400?text=Image+Unavailable"
+#     except Exception as e:
+#         return "https://via.placeholder.com/600x400?text=Image+Unavailable"
 
 # 🆕 Normalize URLs to remove query params for deduplication
 def normalize_url(url: str) -> str:
@@ -531,31 +531,52 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
 
 
 # ── HELPERS ────────────────────────────────────────────────
-def extract_titles(ai_text:str) -> list[str]:
-    def _clean(t:str) -> str:
-        t = t.strip()
-        t = re.sub(r"^[•\-–\d\.\s]+", "", t)
-        t = re.sub(r'^[\"“”]+|[\"“”]+$', '', t)
-        return t.strip()
+def extract_titles(ai_text: str) -> list[str]:
+    import json, re
+    if not ai_text:
+        return []
+
+    raw = ai_text.strip()
+
+    # 1) JSON first
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and isinstance(data.get("chapters"), list):
+            return [t.strip() for t in data["chapters"] if isinstance(t, str) and t.strip()]
+        if isinstance(data, list):
+            return [t.strip() for t in data if isinstance(t, str) and t.strip()]
+    except Exception:
+        pass
+
+    # 2) Normalize common separators to newlines
+    s = raw
+    # bullets / dashes
+    s = re.sub(r"[•·\-–—]\s*", "\n", s)
+    # pipes / semicolons
+    s = re.sub(r"\s*[|;]\s*", "\n", s)
+    # split on commas **only** when followed by a capital (likely separate titles)
+    s = re.sub(r",\s+(?=[A-Z])", "\n", s)
 
     titles: list[str] = []
-    for raw in ai_text.splitlines():
-        raw = raw.strip()
-        if not raw:
+    for line in s.splitlines():
+        line = line.strip()
+        if not line:
             continue
-        m = re.match(r"chapter\s*\d+[:\-]?\s*[\"“]?(.+?)[\"”]?$", raw, re.I)
-        if m:
-            titles.append(_clean(m.group(1)))
-            continue
-        m = re.match(r"(\d+\.|[•\-–])\s+(.+)$", raw)
-        if m:
-            titles.append(_clean(m.group(2)))
-            continue
-        m = re.match(r'[\"“](.+?)[\"”]$', raw)
-        if m:
-            titles.append(_clean(m.group(1)))
-            continue
-    return list(dict.fromkeys([t for t in titles if t]))
+        # strip numbering / Chapter N:
+        line = re.sub(r"^(?:chapter\s*\d+[:\-]?\s*|\d+[\.\)]\s*)", "", line, flags=re.I)
+        # trim quotes
+        line = line.strip(' "\'“”')
+        if len(line) >= 3:
+            titles.append(line)
+
+    # If a model crammed multiple titles into one line separated by double spaces, split again
+    out: list[str] = []
+    for t in titles:
+        parts = [p.strip(' "\'“”') for p in re.split(r"\s{2,}", t) if p.strip()]
+        out.extend(parts)
+
+    # de-dupe, preserve order
+    return list(dict.fromkeys(out))
 
 
 # 🆕 Fixed render_chapter_grid with fallback image and deduplication
@@ -569,7 +590,7 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
 
     for p in posts:
         caption = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
-        why = post.get("why", {})
+        why = p.get("why", {})
         if isinstance(why, dict) and "score" in why and advanced_mode:
             caption = f"{caption}  | 🧭 match={why['score']}"
 
@@ -1682,25 +1703,42 @@ if "classification" not in st.session_state:
         - Prefer practical and relatable themes over vague concepts.
         """
 
+
         # 2️⃣ Ask for chapter suggestions
         with st.spinner("📚 Generating scrapbook chapters from evaluation…"):
             followup_res = call_function("ask_followup_on_answer", {
                 "previous_answer": eval_text,
                 "question": """
-            Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
+                Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
 
-            ⚠️ IMPORTANT:
-            - Only suggest chapter titles if there are Facebook posts that support them.
-            - Avoid creating abstract or philosophical chapter names unless there are posts that clearly fit those themes.
-            - Each chapter should be grounded in observable events, emotions, or patterns in the posts.
-            - Prefer practical and relatable themes over vague concepts.
+                ⚠️ IMPORTANT:
+                - Only suggest chapter titles if there are Facebook posts that support them.
+                - Avoid creating abstract or philosophical chapter names unless there are posts that clearly fit those themes.
+                - Each chapter should be grounded in observable events, emotions, or patterns in the posts.
+                - Prefer practical and relatable themes over vague concepts.
 
-            Respond with a list of chapter titles only.
-            """
+                Respond with a list of chapter titles only.
+                """,
+                "format": "json",   # harmless; the function now forces JSON anyway
             })
 
             followup_text = followup_res.text
-        st.markdown("### 🗂️ Suggested Chapter Themes"); st.markdown(followup_text)
+            try:
+                payload = json.loads(followup_text)
+                chapters = payload.get("chapters", [])
+            except Exception:
+                # fallback in case the function ever returns plain text
+                chapters = extract_titles(followup_text)
+
+            if advanced_mode:
+                st.write("**Parsed chapters:**", chapters)
+
+            if not chapters:
+                st.warning("We couldn't organize these memories yet. Try uploading more posts.")
+                st.stop()
+
+        st.markdown("### 🗂️ Suggested Chapter Themes")
+        st.markdown(followup_text)
         
             # 3️⃣ Extract chapter titles
         chapters = extract_titles(followup_text)
@@ -1716,7 +1754,9 @@ if "classification" not in st.session_state:
             # 🆕 Dynamically calculate max_per_chapter for big backups
             max_per_chapter = calculate_max_per_chapter(chapters, posts)
 
-
+            small = len(posts) <= 12
+            min_per_val   = 1 if small else 2
+            min_match_val = 0.12 if small else 0.18
             classify_res = call_function(
             "embed_classify_posts_into_chapters",
             {
