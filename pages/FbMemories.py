@@ -11,7 +11,7 @@ from azure.storage.blob import BlobServiceClient  # type: ignore
 import hashlib
 import time 
 from io import BytesIO
-
+# TOP OF FILE, with your other imports
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
@@ -29,95 +29,264 @@ try:
 except Exception:
     _HAVE_PIL = False
 
+# ---- Debug guard to catch & suppress accidental "None" renders ----
+import functools, inspect
+
+def _is_none_like(x):
+    try:
+        return (x is None) or (str(x).strip().lower() == "none")
+    except Exception:
+        return False
+
+def _guard(fn_name):
+    orig = getattr(st, fn_name)
+    @functools.wraps(orig)
+    def wrapped(*args, **kwargs):
+        if args and _is_none_like(args[0]):
+            fr = inspect.stack()[1]
+            where = f"{fr.filename.split('/')[-1]}:{fr.lineno}"
+            st.sidebar.warning(f"Suppressed None passed to st.{fn_name} at {where}")
+            return  # swallow the None so nothing ugly shows in the UI
+        return orig(*args, **kwargs)
+    return wrapped
+
+for _fn in ("write", "text", "caption", "markdown", "code"):
+    setattr(st, _fn, _guard(_fn))
+# -------------------------------------------------------------------
+
 
 
 # ── PAGE CONFIG ────────────────────────────────────────────────
 st.set_page_config(page_title="🧠 Facebook Memories", layout="wide")
 
-# from utils.theme import inject_global_styles
+from utils.theme import inject_global_styles
 
 
 
 
-# inject_global_styles()
+inject_global_styles()
 st.markdown("""
 <style>
-/* ====== Minimal Dark Theme (same as your current memories page) ====== */
-html, body, .stApp { background:#0e1117; }
-h1, h2, h3, h4, .stMarkdown { color:#FFFFFFDD; text-align:center; }
-.stSpinner > div > div { color:#3366cc; }
-
-/* Chapter title pill (kept from your current page) */
-.chapter-title{
-  margin-top:2rem;
-  margin-bottom:1rem;
-  font-size:1.8rem;
-  color:#f5f5f5;
+:root{
+  --navy-900:#0F253D;     /* deep background */
+  --navy-800:#143150;
+  --navy-700:#1E3A5F;     /* headers / hover */
+  --navy-500:#2F5A83;     /* accents */
+  --gold:#F6C35D;         /* brand accent */
+  --text:#F3F6FA;         /* off-white */
+  --muted:#B9C6D6;        /* secondary text */
+  --card:#112A45;         /* card bg */
+  --line:rgba(255,255,255,.14);
 }
-
-/* --- Light styling to preserve Khushi layout classes --- */
-/* Cards & grids (kept so your promo and image grids don’t break) */
+/* Page */
+html, body, .stApp{
+  background: linear-gradient(180deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-700) 100%);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* Headings */
+h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
+  color: var(--text) !important;
+  letter-spacing:.25px;
+  text-align:center;
+}
+/* Header brand row (logo + title) */
+.header-container{
+  display:flex; align-items:center; justify-content:center; gap:12px;
+  margin: 8px 0 12px 0;
+}
+.header-container img{
+  width:56px; height:auto; filter: drop-shadow(0 2px 8px rgba(0,0,0,.25));
+}
+.header-title{
+  font-weight:800; font-size: 32px; line-height:1.05; letter-spacing:.2px;
+}
+.header-title .accent{ color: var(--gold); }
+/* Hero card */
+.hero-box{
+  text-align:center; max-width:560px; margin: 6px auto 10px;
+  padding: 2rem 2rem;
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 6px 16px rgba(0,0,0,.12);
+}
+.card{ box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+/* Primary CTA: style Streamlit buttons like gold CTA */
+.stButton>button{
+  background: var(--gold) !important;
+  color: var(--navy-900) !important; font-weight:800 !important; font-size:17px !important;
+  padding: 12px 24px !important; border-radius: 8px !important; border: none !important;
+  box-shadow: 0 4px 14px rgba(246,195,93,.22) !important;
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease !important;
+}
+.stButton>button:hover{
+  filter: brightness(.95);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
+}
+/* Subtext + alerts */
+.subtext{ font-size:.95rem; margin-top:.9rem; color: var(--muted); }
+div[data-testid="stAlert"]{ border:1px solid var(--line); background: rgba(255,255,255,.06); }
+/* Navbar */
+.navbar{
+  display:flex; justify-content:space-between; align-items:center;
+  padding: 1rem 2rem; background: rgba(255,255,255,.04);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 6px rgba(0,0,0,.12);
+}
+.navbar a{ color: var(--text); text-decoration:none; margin-left:1.2rem; }
+.navbar a:hover{ color: var(--gold); }
+/* Shared cards/grid/titles for this page */
 .card{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:14px;
-  padding:18px;
-  box-shadow:0 10px 24px rgba(0,0,0,.18);
-  margin-bottom:18px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+  margin-bottom: 18px;
 }
 .grid-3{ display:grid; grid-template-columns: repeat(3,1fr); gap:16px; }
-@media (max-width:1100px){ .grid-3{ grid-template-columns: repeat(2,1fr);} }
-@media (max-width:700px){ .grid-3{ grid-template-columns:1fr; } }
+@media (max-width: 1100px){ .grid-3{ grid-template-columns: repeat(2,1fr);} }
+@media (max-width: 700px){ .grid-3{ grid-template-columns: 1fr; } }
 .section-title{
-  font-size:1.25rem; font-weight:800; margin:22px 0 10px;
-  text-align:left; color:#FFFFFFDD;
+  font-size: 1.25rem; font-weight: 800; margin: 22px 0 10px;
+  text-align:left; color: var(--text);
 }
-.muted{ color:#AEB5C0; }
-.badge{
-  display:inline-block; padding:6px 12px; border-radius:999px;
-  background:rgba(255,255,255,.08); color:#f5f5f5; font-weight:700;
+.badge{ display:inline-block; padding:6px 12px; border-radius:999px;
+  background: rgba(255,255,255,.08); color: var(--gold); font-weight:700; }
+.muted{ color: var(--muted); }
+/* --- Promo strip (small, non-dominant) --- */
+.promo-wrap{
+  max-width:1100px; margin:8px auto 18px;
+  display:grid; grid-template-columns: 1fr 1.2fr; gap:18px;
 }
+@media (max-width: 900px){ .promo-wrap{ grid-template-columns: 1fr; } }
 
-/* Buttons: subtle dark theme button that matches your current page */
-.stButton>button{
-  background:#1f2937 !important;
-  color:#FFFFFFDD !important; font-weight:700 !important;
-  padding:10px 18px !important; border-radius:8px !important; border:1px solid rgba(255,255,255,.14) !important;
-}
-.stButton>button:hover{ filter:brightness(1.08); }
+.promo-grid{ display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
+@media (max-width: 900px){ .promo-grid{ grid-template-columns: 1fr; } }
 
-/* Keep promo tiles compact but dark-themed */
-.promo-wrap{ max-width:1100px; margin:14px auto 20px; display:grid; grid-template-columns:1fr 1.2fr; gap:18px; }
-@media (max-width:900px){ .promo-wrap{ grid-template-columns:1fr; } }
-.promo-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+
 .promo-card{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:12px; overflow:hidden;
-  box-shadow:0 6px 16px rgba(0,0,0,.15);
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 16px rgba(0,0,0,.15);
 }
-.promo-card img{ display:block; width:100%; height:120px; object-fit:cover; }
+/* Promo tiles: show full image, keep aspect, avoid blur */
+/* Promo tiles: large, crisp, and full-bleed */
+.promo-card img{
+  display:block;
+  width:100% !important;
+  height:220px !important;         /* larger uniform tiles */
+  object-fit:cover !important;     /* fill without squish */
+  border-bottom:1px solid var(--line);
+  border-radius:12px 12px 0 0;
+  image-rendering:-webkit-optimize-contrast;
+}
+
 .promo-card .caption{
-  padding:8px 10px; font-weight:700; font-size:.9rem; color:#FFFFFFDD;
+  padding:8px 10px; font-weight:700; font-size:.9rem; color:var(--text);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.promo-copy{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:12px; padding:16px 18px;
-  box-shadow:0 6px 16px rgba(0,0,0,.15);
-}
 
-/* Hide default spinner SVG to match the original page */
-div[data-testid="stSpinner"] svg { display:none !important; }
+.promo-copy{
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 6px 16px rgba(0,0,0,.15);
+}
+.promo-copy .badge{ color: var(--gold); font-weight:800; }   
+/* Scrapbook chapter title */
+.chapter-title{
+  display:inline-block;
+  background:#fff8e6;
+  color:#2a2a2a;
+  font-weight:800;
+  font-size:1.15rem;
+  padding:10px 14px;
+  border-radius:8px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.18);
+  border: 1px solid rgba(0,0,0,.06);
+  margin: 18px 0 10px;
+  position: relative;
+}
+.chapter-title::before{
+  content:"";
+  position:absolute;
+  width:90px; height:18px;
+  top:-10px; left:12px;
+  background: linear-gradient(90deg, #f2e5c2, #efe2c0);
+  transform: rotate(-2deg);
+  box-shadow: 0 4px 8px rgba(0,0,0,.12);
+  opacity:.9;
+  border-radius:4px;
+}       
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+.chapter-title{
+  background: transparent !important;
+  color: var(--text) !important;
+  border: 1px dashed var(--line) !important;
+  box-shadow: none !important;
+}
+.chapter-title::before{ display:none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# --- Promo asset paths (local) ---
-PROMO1 = "media/LiveOn-Logo20.png"
-PROMO2 = "media/image.png"
-PROMO3 = "media/image (1).png"
+st.markdown("""
+<style>
+:root{
+  --navy-900:#0b1220;
+  --navy-800:#0e172a;
+  --navy-700:#111827;
+  --card:#0f172a;
+  --text:#e5e7eb;
+  --muted:#9ca3af;
+  --line:rgba(255,255,255,.10);
+  /* repurpose 'gold' as primary accent */
+  --gold:#6366F1; /* indigo-500 */
+}
+.stButton>button{
+  background: var(--gold) !important;
+  color: #fff !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+.brandbar{
+  max-width:1100px;
+  margin:6px auto 6px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.brandbar img{
+  width:44px; height:auto;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,.25));
+}
+.brandbar .wordmark{
+  font-weight:900;
+  font-size:26px;
+  letter-spacing:.2px;
+  color: var(--text);
+}
+.brandbar .wordmark b{ color: var(--gold); }
+</style>
+""", unsafe_allow_html=True)
+
+
+st.markdown("""
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet">
+""", unsafe_allow_html=True)
 
 
 
@@ -147,21 +316,6 @@ def make_safe_key(chap, idx, img_url):
     base = f"{chap}_{idx}_{img_url}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
-# def sign_blob_url(blob_path: str) -> str:
-#     try:
-#         account_name = blob_service_client.account_name
-#         sas = generate_blob_sas(
-#             account_name=account_name,
-#             container_name=CONTAINER,
-#             blob_name=blob_path,
-#             account_key=blob_service_client.credential.account_key,
-#             permission=BlobSasPermissions(read=True),
-#             expiry=datetime.utcnow() + timedelta(hours=24)
-#         ) 
-#         return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote(blob_path, safe='/')}?{sas}"
-
-#     except Exception as e:
-#         return "https://via.placeholder.com/600x400?text=Image+Unavailable"
 
 # 🆕 Normalize URLs to remove query params for deduplication
 def normalize_url(url: str) -> str:
@@ -170,11 +324,18 @@ def normalize_url(url: str) -> str:
     return urlunparse(clean)
 
 def _cap(s) -> str:
-    """Always return a safe, non-None caption string."""
-    if s is None:
+    """Return a safe caption string; strip any 'None' artifacts and zero-width junk."""
+    if not s:
         return ""
     s = str(s).strip()
-    return "" if s.lower() == "none" else s
+    if not s or s.lower() in {"none", "null", "undefined"}:
+        return ""
+    # strip trailing ‘🧠 None’ (various dashes/spaces) or standalone 🧠 with nothing useful
+    s = re.sub(r"(?:\s*[–—-]\s*)?🧠\s*(?:none|null|undefined)?\s*$", "", s, flags=re.IGNORECASE).strip()
+    # strip quoted empties
+    s = re.sub(r"^[\"'“”]+|[\"'“”]+$", "", s).strip()
+    return s
+
 
 def _text(s) -> str:
     if s is None: 
@@ -190,22 +351,27 @@ def compose_caption(message, context):
     return m or (f"🧠 {c}" if c else "📷")
 
 def _craft_caption_via_function(message: str, context: str) -> str:
-    try:
-        msg = _text(message)
-        ctx = _text(context)
-        if not msg and not ctx:
-            return "📷"
-        key = st.secrets.get("CRAFT_CAPTION_KEY") or os.environ.get("CRAFT_CAPTION_KEY", "")
-        url = f"{FUNCTION_BASE}/craft_caption" + (f"?code={key}" if key else "")
-        r = requests.post(url, json={"message": msg, "context": ctx}, timeout=12)
-        r.raise_for_status()
-        data = r.json() if r.headers.get("content-type","").startswith("application/json") else {}
-        cap = _text((data or {}).get("caption"))
-        return cap or (f"{msg} — 🧠 {ctx}" if msg and ctx else msg or (f"🧠 {ctx}" if ctx else "📷"))
-    except Exception:
+    # Pure local: stay compatible with older Function App (no /craft_caption route)
+    return compose_caption(message, context)
+
+
+#def _craft_caption_via_function(message: str, context: str) -> str:
+ #   try:
+  #      msg = _text(message)
+   #     ctx = _text(context)
+    #    if not msg and not ctx:
+     #       return "📷"
+      #  key = st.secrets.get("CRAFT_CAPTION_KEY") or os.environ.get("CRAFT_CAPTION_KEY", "")
+       # url = f"{FUNCTION_BASE}/craft_caption" + (f"?code={key}" if key else "")
+        #r = requests.post(url, json={"message": msg, "context": ctx}, timeout=12)
+        #r.raise_for_status()
+        #data = r.json() if r.headers.get("content-type","").startswith("application/json") else {}
+        #cap = _text((data or {}).get("caption"))
+        #return cap or (f"{msg} — 🧠 {ctx}" if msg and ctx else msg or (f"🧠 {ctx}" if ctx else "📷"))
+    #except Exception:
         # graceful fallback to your current style
-        return (f"{_text(message)} — 🧠 {_text(context)}" if _text(message) and _text(context)
-                else _text(message) or (f"🧠 {_text(context)}" if _text(context) else "📷"))
+     #   return (f"{_text(message)} — 🧠 {_text(context)}" if _text(message) and _text(context)
+      #          else _text(message) or (f"🧠 {_text(context)}" if _text(context) else "📷"))"""
 
 # keep a session-scoped set of used captions to avoid dupes
 def _unique_caption(raw: str, tries=2) -> str:
@@ -276,79 +442,20 @@ st.session_state.setdefault("pdf_dirty", True)     # mark needs rebuild
 
 
 
-st.markdown("""
-<div class="header-container">
-  <img src="https://minedco.com/favicon.ico" alt="Mined logo">
-  <div class="header-title">Facebook <span class="accent">Memories</span></div>
-</div>
-<div class="hero-box">
-  <h1>🧠 Your AI-Curated Scrapbook</h1>
-  <p>Relive your favorite moments in one place.</p>
-</div>
-
-""", unsafe_allow_html=True)
-
-
-st.markdown(f"""
-<div class="promo-wrap">
-  <div class="promo-grid">
-    <div class="promo-card">
-      <img src="{PROMO1}" alt="LiveOn Promo 1">
-      <div class="caption">LiveOn + Memories</div>
-    </div>
-    <div class="promo-card">
-      <img src="{PROMO2}" alt="LiveOn Promo 2">
-      <div class="caption">From ZIP to Story</div>
-    </div>
-    <div class="promo-card">
-      <img src="{PROMO3}" alt="LiveOn Promo 3">
-      <div class="caption">Crafted Automatically</div>
-    </div>
-  </div>
-
-  <div class="promo-copy">
-    <div class="badge" style="margin-bottom:8px;">Want something more?</div>
-    <div class="muted" style="font-size:1.05rem;line-height:1.6;">
-      <strong>LiveOn</strong> doesn’t stop at backup.<br/>
-      It can turn your photos and posts into a beautifully crafted story — in your tone, your style, your rhythm.<br/>
-      A scrapbook that feels like you made it, without you doing a thing.
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-
-
-# --- LiveOn promo strip (uses files in ../media) ---
-MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
-PROMO_IMAGES = [
-    str(MEDIA_DIR / "image.png"),
-    str(MEDIA_DIR / "LiveOn-Logo20.png"),
-    str(MEDIA_DIR / "image (1).png"),
-]
-
-promo_cols = st.columns([1, 1, 1, 2])  # three small tiles + wider copy
-
-# three compact promo tiles
-for i in range(3):
-    with promo_cols[i]:
-        st.markdown('<div class="card" style="padding:12px">', unsafe_allow_html=True)
-        st.image(PROMO_IMAGES[i], caption="", width=220)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-
-
-
 # ── CONSTANTS ────────────────────────────────────────────────
-# ── CONSTANTS ────────────────────────────────────────────────
+
+
 FUNCTION_BASE = st.secrets.get(
-    "FUNCTION_BASE",
-    os.environ.get("FUNCTION_BASE", "https://test0776.azurewebsites.net/api")
-)
 
+    "FUNCTION_BASE",
+
+    os.environ.get("FUNCTION_BASE", "https://test0776.azurewebsites.net/api")
+
+)
 if "azurewebsites.net" not in FUNCTION_BASE:
+
     st.warning("⚠️ FUNCTION_BASE is not pointing to your deployed Function App. "
+
                "Set FUNCTION_BASE in secrets to your deployed Functions base URL.")
 
 CONNECT_STR   = st.secrets["AZURE_CONNECTION_STRING"]
@@ -356,7 +463,7 @@ CONTAINER     = "backup"
 
 blob_service_client = BlobServiceClient.from_connection_string(CONNECT_STR)
 container_client = blob_service_client.get_container_client(CONTAINER)
-blob_names = [blob.name for blob in container_client.list_blobs()]
+#blob_names = [blob.name for blob in container_client.list_blobs()]
 
 # --- SAS helpers (robust across SDK variants) ---
 def _account_key_from_env() -> str | None:
@@ -375,6 +482,19 @@ def _get_account_key() -> str | None:
     return _account_key_from_env() or _account_key_from_client()
 
 def sign_blob_url(blob_path: str) -> str:
+    """
+    Return a SAS URL for a blob path, but keep it STABLE for this session
+    so the browser can cache images across reruns.
+    """
+    allowed = list(st.session_state.get("_allowed_prefixes") or [])
+    if allowed and not any(str(blob_path).startswith(p) for p in allowed):
+        return "https://via.placeholder.com/600x400?text=Not+Your+File"
+
+    # 👇 per-session memoization (stable URL prevents re-downloads)
+    sas_cache = st.session_state.setdefault("_sas_cache", {})
+    if blob_path in sas_cache:
+        return sas_cache[blob_path]
+
     try:
         account_name = blob_service_client.account_name
         account_key = _get_account_key()
@@ -386,10 +506,11 @@ def sign_blob_url(blob_path: str) -> str:
             permission=BlobSasPermissions(read=True),
             expiry=datetime.utcnow() + timedelta(hours=24),
         )
-        return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote(blob_path, safe='/')}?{sas}"
+        url = f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{quote(blob_path, safe='/')}?{sas}"
+        sas_cache[blob_path] = url
+        return url
     except Exception:
         return "https://via.placeholder.com/600x400?text=Image+Unavailable"
-
 
 from urllib.parse import unquote
 
@@ -432,7 +553,32 @@ elif project_id:
 else:
     st.error("⚠️ No backup or project selected. Please go to 'My Projects' or 'My Backups'.")
     st.stop()
+
+# Limit what this session is allowed to render/sign:
+#  - the current user's folder (blob_folder)
+#  - the shared "app-assets" folder used by themes
+st.session_state["_allowed_prefixes"] = [
+    f"{str(blob_folder).strip('/')}/",
+    "app-assets/"
+]
+# Extra guard: a backup must start with fb_id/
+fb_id = str(st.session_state.get("fb_id") or "")
+if not is_project and fb_id:
+    if not str(blob_folder).startswith(f"{fb_id}/"):
+        st.error("⚠️ This backup does not belong to your account.")
+        st.stop()
 #st.write("📂 Trying to load from blob folder:", blob_folder)
+# Reset per-folder state when the folder changes (prevents cross-user/project bleed)
+_prev = st.session_state.get("_blob_folder")
+if _prev != blob_folder:
+    st.session_state["_blob_folder"] = blob_folder
+    st.session_state.pop("classification", None)
+    st.session_state.pop("chapters", None)
+    st.session_state["pdf_bytes"] = None
+    st.session_state["pdf_dirty"] = True
+    st.session_state.pop("_sas_cache", None)  # 👈 also reset SAS memoization
+
+
 
 
 
@@ -456,7 +602,9 @@ try:
 except:
     project_name = "Facebook Memories"
 
-st.markdown(f"<div class='section-title'>📘 {project_name}</div>", unsafe_allow_html=True)
+#st.markdown(f"<div class='section-title'>📘 {project_name}</div>", unsafe_allow_html=True)
+#st.caption(f"Project: {project_name}")
+
 
 
 
@@ -531,52 +679,31 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
 
 
 # ── HELPERS ────────────────────────────────────────────────
-def extract_titles(ai_text: str) -> list[str]:
-    import json, re
-    if not ai_text:
-        return []
-
-    raw = ai_text.strip()
-
-    # 1) JSON first
-    try:
-        data = json.loads(raw)
-        if isinstance(data, dict) and isinstance(data.get("chapters"), list):
-            return [t.strip() for t in data["chapters"] if isinstance(t, str) and t.strip()]
-        if isinstance(data, list):
-            return [t.strip() for t in data if isinstance(t, str) and t.strip()]
-    except Exception:
-        pass
-
-    # 2) Normalize common separators to newlines
-    s = raw
-    # bullets / dashes
-    s = re.sub(r"[•·\-–—]\s*", "\n", s)
-    # pipes / semicolons
-    s = re.sub(r"\s*[|;]\s*", "\n", s)
-    # split on commas **only** when followed by a capital (likely separate titles)
-    s = re.sub(r",\s+(?=[A-Z])", "\n", s)
+def extract_titles(ai_text:str) -> list[str]:
+    def _clean(t:str) -> str:
+        t = t.strip()
+        t = re.sub(r"^[•\-–\d\.\s]+", "", t)
+        t = re.sub(r'^[\"“”]+|[\"“”]+$', '', t)
+        return t.strip()
 
     titles: list[str] = []
-    for line in s.splitlines():
-        line = line.strip()
-        if not line:
+    for raw in ai_text.splitlines():
+        raw = raw.strip()
+        if not raw:
             continue
-        # strip numbering / Chapter N:
-        line = re.sub(r"^(?:chapter\s*\d+[:\-]?\s*|\d+[\.\)]\s*)", "", line, flags=re.I)
-        # trim quotes
-        line = line.strip(' "\'“”')
-        if len(line) >= 3:
-            titles.append(line)
-
-    # If a model crammed multiple titles into one line separated by double spaces, split again
-    out: list[str] = []
-    for t in titles:
-        parts = [p.strip(' "\'“”') for p in re.split(r"\s{2,}", t) if p.strip()]
-        out.extend(parts)
-
-    # de-dupe, preserve order
-    return list(dict.fromkeys(out))
+        m = re.match(r"chapter\s*\d+[:\-]?\s*[\"“]?(.+?)[\"”]?$", raw, re.I)
+        if m:
+            titles.append(_clean(m.group(1)))
+            continue
+        m = re.match(r"(\d+\.|[•\-–])\s+(.+)$", raw)
+        if m:
+            titles.append(_clean(m.group(2)))
+            continue
+        m = re.match(r'[\"“](.+?)[\"”]$', raw)
+        if m:
+            titles.append(_clean(m.group(1)))
+            continue
+    return list(dict.fromkeys([t for t in titles if t]))
 
 
 # 🆕 Fixed render_chapter_grid with fallback image and deduplication
@@ -595,9 +722,15 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
             caption = f"{caption}  | 🧭 match={why['score']}"
 
 
+
         images = p.get("images", [])
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
+        # ✅ SANITIZE
+        images = [u for u in images if u and str(u).strip().lower() != "none"]
+        if not images:
+            images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
+
 
         for img in images:
             if not img:
@@ -622,9 +755,22 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
         with cols[idx % 4]:
             if kind == "image":
                 try:
-                    st.image(img_url, caption=_cap(caption), use_container_width=True)
+                    #st.image(img_url, caption=_cap(caption), use_container_width=True)
+                    _cap_text = _cap(caption)
+                    if _cap_text:
+                        st.image(img_url, caption=_cap_text, use_container_width=True)
+                    else:
+                        st.image(img_url, use_container_width=True)
+
                 except:
-                    st.image("https://via.placeholder.com/600x400?text=Image+Unavailable", caption=caption[:80], use_container_width=True)
+                    _cap_text = _cap(caption)[:80]
+                    if _cap_text:
+                        st.image("https://via.placeholder.com/600x400?text=Image+Unavailable",
+                                caption=_cap_text, use_container_width=True)
+                    else:
+                        st.image("https://via.placeholder.com/600x400?text=Image+Unavailable",
+                                use_container_width=True)
+
 
 
 
@@ -650,7 +796,13 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
 
     for post_idx, post in enumerate(chapter_posts):
         images = post.get("images", []) or ([post.get("image")] if "image" in post else [])
+        # ✅ sanitize
+        images = [u for u in images if u and str(u).strip().lower() != "none"]
+        if not images:
+            continue
+
         caption = _unique_caption(_craft_caption_via_function(post.get("message"), post.get("context_caption")))
+
         why = post.get("why", {})
         if isinstance(why, dict) and "score" in why and advanced_mode:
             caption = f"{caption}  | 🧭 match={why['score']}"
@@ -665,10 +817,21 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
                 seen_urls.add(key)
 
                 try:
-                    st.image(display_url, caption=_cap(caption), use_container_width=True)
+                    _cap_text = _cap(caption)
+                    if _cap_text:
+                        st.image(display_url, caption=_cap_text, use_container_width=True)
+                    else:
+                        st.image(display_url, use_container_width=True)
+
                 except Exception:
-                    st.image("https://via.placeholder.com/600x400?text=Image+Unavailable",
-                             caption=caption[:80], use_container_width=True)
+                    _cap_text = _cap(caption)[:80]
+                    if _cap_text:
+                        st.image("https://via.placeholder.com/600x400?text=Image+Unavailable",
+                                caption=_cap_text, use_container_width=True)
+                    else:
+                        st.image("https://via.placeholder.com/600x400?text=Image+Unavailable",
+                                use_container_width=True)
+
 
                 # Replace / Undo
                 button_key = f"replace_{chap_title}_{post_idx}_{img_idx}"
@@ -773,12 +936,17 @@ def _flatten_chapter_items(classification: dict, chap: str) -> list[dict]:
     items = []
     for p in classification.get(chap, []):
         imgs = p.get("images", []) or ([p.get("image")] if "image" in p else [])
-        if not imgs: 
+        # ✅ SANITIZE
+        imgs = [u for u in imgs if u and str(u).strip().lower() != "none"]
+        if not imgs:
             continue
-        caption = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
+
+        crafted = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
+
         date_s = _nice_date(p.get("created_time"))
         for u in imgs:
-            items.append({"img": u, "caption": caption, "date": date_s})
+            items.append({"img": u, "caption": crafted, "date": date_s})
+
     return items
 
 
@@ -839,6 +1007,8 @@ ASSETS_DIR = BASE_DIR / "assets"
 
 
 
+
+
 def _asset(name: str) -> str | None:
     """
     Return a path/URL for an asset named `name`.
@@ -863,6 +1033,49 @@ def _asset(name: str) -> str | None:
         pass
 
     return None
+
+def _preview_asset(name: str) -> str:
+    """
+    Return a guaranteed-displayable URL for the design preview tiles.
+    Uses the real blob if present; otherwise a placeholder image.
+    """
+    try:
+        blob_path = f"app-assets/{name}"
+        bc = container_client.get_blob_client(blob_path)
+        if bc.exists():
+            return sign_blob_url(blob_path)
+    except Exception:
+        pass
+    return "https://via.placeholder.com/800x500?text=Preview+Not+Found"
+
+# ---- Asset URLs (define AFTER _preview_asset & container_client exist) ----
+# Use an existing high-res brand tile as the header mark (no broken ALT).
+LOGO_URL = _preview_asset("promo_liveon.png")
+PROMO1   = _preview_asset("promo_liveon.png")
+PROMO2   = _preview_asset("promo_zip_to_story.png")
+PROMO3   = _preview_asset("promo_crafted.png")
+
+PROMO1_2x = _preview_asset("promo_liveon@2x.png")
+
+# only add a srcset tag if the @2x file actually exists
+PROMO1_2x_TAG = f' srcset="{PROMO1_2x} 2x"' if ("Preview+Not+Found" not in PROMO1_2x and PROMO1_2x != PROMO1) else ""
+
+# ---------- EXTRA HEADER ASSETS (add right below LOGO_URL / PROMOs) ----------
+PAPER_TXT = _preview_asset("paper_bg.jpg")
+TAPE_URL  = _preview_asset("tape.png")
+HERO_IMG1 = _preview_asset("preview_polaroid.png")  # left/top photo
+HERO_IMG2 = _preview_asset("promo_liveon.png")      # right/bottom photo
+
+# brand row (replaces .header-container)
+st.markdown(f"""
+<div class="brandbar">
+  <img src="{LOGO_URL}" alt="LiveOn">
+  <div class="wordmark">Facebook <b>Memories</b></div>
+</div>
+""", unsafe_allow_html=True)
+
+
+
 
 
 def _register_scrapbook_fonts() -> tuple[str, str, str]:
@@ -1342,11 +1555,12 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
                         c.drawImage(img, x-w/2, y-h/2, width=w, height=h, mask='auto')
                 except:
                     pass
-                cap = _text(it.get("caption",""))[:90]
+                cap = _cap(it.get("caption",""))[:90]
                 if cap:
                     c.setFillColorRGB(0.20,0.20,0.20)
                     c.setFont(_register_scrapbook_fonts()[2], 10)
                     c.drawCentredString(x, y - card_h/2 - 14, cap)
+
                 c.restoreState()
             else:
                 _polaroid(
@@ -1354,9 +1568,10 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
                     img_buf=buf if buf else BytesIO(),
                     x=x, y=y, w=card_w, h=card_h,
                     angle=angles[pos] if pos < len(angles) else 0,
-                    caption=_text(it.get("caption",""))[:90],
+                    caption=_cap(it.get("caption",""))[:90],
                     tape_path=(theme.get("tape") if tape else None)
                 )
+
 
 
     # ---- Template configuration (backgrounds + style) ----
@@ -1433,85 +1648,47 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
 import hashlib, json
 from typing import Iterable
 
-def _content_hash(
-    images_bytes: Iterable[bytes],
-    captions: Iterable[str],
-    design_key: str,
-    layout_key: str,
-    page_size: str,
-    bg_color: str,
-    seed: int
+def _scrapbook_ck(
+    classification: dict,
+    chapters: list[str],
+    blob_folder: str,
+    template: str
 ) -> str:
-    h = hashlib.sha256()
-    for b in images_bytes:
-        h.update(b)
-    h.update(json.dumps([
-        list(captions), design_key, layout_key, page_size, bg_color, seed
-    ], ensure_ascii=False).encode("utf-8"))
-    return h.hexdigest()
+    """
+    Stable content key for caching, based on the *actual* scrapbook content.
+    """
+    def _norm(u):
+        try:
+            return normalize_url(str(u))
+        except Exception:
+            return str(u) if u is not None else ""
+    sig = []
+    for chap in chapters or []:
+        for p in (classification or {}).get(chap, []):
+            imgs = p.get("images", []) or ([p.get("image")] if p.get("image") else [])
+            for u in imgs:
+                sig.append(_norm(u))
+    raw = json.dumps([sig, chapters, blob_folder, template], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-
-def _build_pdf(
-    # ⚠️ include EVERY input that changes the PDF
-    design_key: str,
-    layout_key: str,
-    page_size: str,
-    bg_color: str,
-    seed: int,
-    images_bytes: tuple[bytes, ...],
-    captions: tuple[str, ...],
-    _ck: str  # computed content key; see call-site below
-) -> bytes:
-    # call your real, pure builder here; don't do any Streamlit UI in this function
-    return _build_pdf(
-        design_key=design_key,
-        layout_key=layout_key,
-        page_size=page_size,
-        bg_color=bg_color,
-        seed=seed,
-        images_bytes=list(images_bytes),
-        captions=list(captions),
-    )
-
-def _content_hash(
-    images_bytes: Iterable[bytes],
-    captions: Iterable[str],
-    design_key: str,
-    layout_key: str,
-    page_size: str,
-    bg_color: str,
-    seed: int
-) -> str:
-    h = hashlib.sha256()
-    for b in images_bytes:
-        h.update(b)
-    h.update(json.dumps([
-        list(captions), design_key, layout_key, page_size, bg_color, seed
-    ], ensure_ascii=False).encode("utf-8"))
-    return h.hexdigest()
-
-@st.cache_data(show_spinner=False, ttl=0)
+@st.cache_data(show_spinner=False)
 def _build_pdf_cached(
-    # ⚠️ include EVERY input that changes the PDF
-    design_key: str,
-    layout_key: str,
-    page_size: str,
-    bg_color: str,
-    seed: int,
-    images_bytes: tuple[bytes, ...],
-    captions: tuple[str, ...],
-    _ck: str  # computed content key; see call-site below
+    classification: dict,
+    chapters: list[str],
+    blob_folder: str,
+    show_empty_chapters: bool,
+    profile_summary: str,
+    template: str,
+    _ck: str  # content key to control caching
 ) -> bytes:
-    return _build_pdf(
-        design_key=design_key,
-        layout_key=layout_key,
-        page_size=page_size,
-        bg_color=bg_color,
-        seed=seed,
-        images_bytes=list(images_bytes),
-        captions=list(captions),
+    return build_pdf_bytes(
+        classification=classification,
+        chapters=chapters,
+        blob_folder=blob_folder,
+        show_empty_chapters=show_empty_chapters,
+        profile_summary=profile_summary,
+        template=template
     )
-
 
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
@@ -1541,6 +1718,57 @@ try:
     # Clean, true count (after dedupe), no folder/chapters noise
     st.success(f"✅ Loaded {len(posts)} unique posts")
     st.session_state["all_posts_raw"] = posts
+
+
+    # --- Minimal 3-image hero (now uses promo images) ---
+    h1, h2, h3 = PROMO1, PROMO2, PROMO3  # <- use your promo tiles
+
+    st.markdown(f"""
+    <div class="hero-min">
+    <div class="copy">
+        <h1>Facebook <span>Memories</span></h1>
+        <p class="sub">Relive your favorite moments in a beautiful, organized view.</p>
+    </div>
+    <div class="tri">
+        <img src="{h1}" class="card c1" alt="promo 1">
+        <img src="{h2}" class="card c2" alt="promo 2">
+        <img src="{h3}" class="card c3" alt="promo 3">
+        <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <style>
+    .hero-min{
+    max-width:1100px; margin:12px auto 22px;
+    display:grid; grid-template-columns: 1.1fr 1fr; gap:28px; align-items:center;
+    }
+    .hero-min .copy h1{
+    margin:0; font-weight:900; font-size:48px; letter-spacing:.2px; color:var(--text); /* bigger middle title */
+    }
+    .hero-min .copy h1 span{ color:var(--gold); }
+    .hero-min .copy .sub{ color:var(--muted); margin-top:6px; font-size:1.06rem; }
+    .hero-min .tri{ position:relative; height:280px; }
+    .hero-min .tri .card{
+    position:absolute; width:58%; aspect-ratio:4/3; object-fit:cover;
+    border-radius:14px; box-shadow:0 14px 32px rgba(0,0,0,.35);
+    border:1px solid var(--line); background:#111827;
+    }
+    .hero-min .tri .c1{ left:0; top:18px; transform:rotate(-3deg); }
+    .hero-min .tri .c2{ left:22%; top:-8px; transform:rotate(.8deg); z-index:2; }
+    .hero-min .tri .c3{ right:0; bottom:0; transform:rotate(3deg); }
+    .hero-min .dots{
+    position:absolute; left:50%; bottom:-14px; transform:translateX(-50%);
+    display:flex; gap:8px;
+    }
+    .hero-min .dots span{
+    width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.35); display:block;
+    }
+    @media (max-width: 900px){ .hero-min{ grid-template-columns:1fr; } .hero-min .tri{ height:220px; } }
+    </style>
+    """, unsafe_allow_html=True)
+
 
 
     # Optional tiny hint row (feel free to keep or delete)
@@ -1573,7 +1801,12 @@ for post in posts:
         imgs = [post["full_picture"]]
     elif "picture" in post and post["picture"].startswith("http"):
         imgs = [post["picture"]]
+
+    # ✅ SANITIZE: drop null/placeholder entries to avoid 'None' render
+    imgs = [u for u in imgs if u and str(u).strip().lower() != "none"]
+
     post["normalized_images"] = imgs
+
     post["message"] = _text(post.get("message"))
     post["context_caption"] = _text(post.get("context_caption"))
 # ── PRIMARY ACTION ────────────────────────────────────────────────────────────
@@ -1687,7 +1920,12 @@ if "classification" not in st.session_state:
 
 
         with st.spinner("🔍 Evaluating personality and life themes…"):
-            eval_res  = call_function("ask_about_blob",{"question":eval_prompt,"posts":posts})
+            #eval_res  = call_function("ask_about_blob",{"question":eval_prompt,"posts":posts})
+            eval_res = call_function("ask_about_blob", {
+                "question": eval_prompt,
+                "posts": posts,                                 # still send posts
+                "filename": f"{blob_folder}/posts.json"         # enables [tenant:<fb_id>] tagging in backend logs
+            })
             eval_text = eval_res.text
             st.session_state["profile_summary"] = eval_text
         st.markdown("### 🧠 Personality Evaluation Summary"); st.markdown(eval_text)
@@ -1703,42 +1941,25 @@ if "classification" not in st.session_state:
         - Prefer practical and relatable themes over vague concepts.
         """
 
-
         # 2️⃣ Ask for chapter suggestions
         with st.spinner("📚 Generating scrapbook chapters from evaluation…"):
             followup_res = call_function("ask_followup_on_answer", {
                 "previous_answer": eval_text,
                 "question": """
-                Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
+            Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
 
-                ⚠️ IMPORTANT:
-                - Only suggest chapter titles if there are Facebook posts that support them.
-                - Avoid creating abstract or philosophical chapter names unless there are posts that clearly fit those themes.
-                - Each chapter should be grounded in observable events, emotions, or patterns in the posts.
-                - Prefer practical and relatable themes over vague concepts.
+            ⚠️ IMPORTANT:
+            - Only suggest chapter titles if there are Facebook posts that support them.
+            - Avoid creating abstract or philosophical chapter names unless there are posts that clearly fit those themes.
+            - Each chapter should be grounded in observable events, emotions, or patterns in the posts.
+            - Prefer practical and relatable themes over vague concepts.
 
-                Respond with a list of chapter titles only.
-                """,
-                "format": "json",   # harmless; the function now forces JSON anyway
+            Respond with a list of chapter titles only.
+            """
             })
 
             followup_text = followup_res.text
-            try:
-                payload = json.loads(followup_text)
-                chapters = payload.get("chapters", [])
-            except Exception:
-                # fallback in case the function ever returns plain text
-                chapters = extract_titles(followup_text)
-
-            if advanced_mode:
-                st.write("**Parsed chapters:**", chapters)
-
-            if not chapters:
-                st.warning("We couldn't organize these memories yet. Try uploading more posts.")
-                st.stop()
-
-        st.markdown("### 🗂️ Suggested Chapter Themes")
-        st.markdown(followup_text)
+        st.markdown("### 🗂️ Suggested Chapter Themes"); st.markdown(followup_text)
         
             # 3️⃣ Extract chapter titles
         chapters = extract_titles(followup_text)
@@ -1754,9 +1975,7 @@ if "classification" not in st.session_state:
             # 🆕 Dynamically calculate max_per_chapter for big backups
             max_per_chapter = calculate_max_per_chapter(chapters, posts)
 
-            small = len(posts) <= 12
-            min_per_val   = 1 if small else 2
-            min_match_val = 0.12 if small else 0.18
+
             classify_res = call_function(
             "embed_classify_posts_into_chapters",
             {
@@ -1814,21 +2033,26 @@ if "classification" not in st.session_state:
             idx = 0
             seen: set[tuple[str, str]] = set()
             for post_idx, p in enumerate(chapter_posts):
-                message = (p.get("message") or "").strip()
-                context = (p.get("context_caption") or "").strip()
-                if message and context:
-                    caption = f"{message} — 🧠 {context}"
-                elif message:
-                    caption = message
-                elif context:
-                    caption = f"🧠 {context}"
-                else:
-                    caption = "📷"
+                #message = (p.get("message") or "").strip()
+                #context = (p.get("context_caption") or "").strip()
+                #if message and context:
+                 #   caption = f"{message} — 🧠 {context}"
+                #elif message:
+                 #   caption = message
+                #elif context:
+                 #   caption = f"🧠 {context}"
+                #else:
+                 #   caption = "📷"
+                caption = compose_caption(p.get("message"), p.get("context_caption"))
                 images = p.get("images", [])
                 if not images and "image" in p:
                     images = [p["image"]]
+                # ✅ sanitize
+                images = [u for u in images if u and str(u).strip().lower() != "none"]
+
                 if images:
                     for img_idx, img_url in enumerate(images):
+
                         signed_url = img_url if str(img_url).startswith("http") else sign_blob_url(str(img_url))
  # It’s already a good URL from posts+cap.json
 
@@ -1837,7 +2061,13 @@ if "classification" not in st.session_state:
                             continue
                         seen.add(key)
                         with cols[idx]:
-                            st.image(signed_url, caption=_cap(caption), use_container_width=True)
+                            #st.image(signed_url, caption=_cap(caption), use_container_width=True)
+                            _cap_text = _cap(caption)
+                            if _cap_text:
+                                st.image(signed_url, caption=_cap_text, use_container_width=True)
+                            else:
+                                st.image(signed_url, use_container_width=True)
+
 
                             
         
@@ -1896,76 +2126,125 @@ if "classification" in st.session_state:
         render_chapter_post_images(chap, chapter_posts, classification, FUNCTION_BASE)
     def _rebuild_pdf_now():
         with st.spinner("Rebuilding your PDF…"):
+            template = st.session_state.get("pdf_template", "natural")
+            classification = st.session_state["classification"]
+            chapters = st.session_state["chapters"]
+
+            ck = _scrapbook_ck(classification, chapters, blob_folder, template)
+
             st.session_state["pdf_bytes"] = _build_pdf_cached(
                 classification, chapters, blob_folder, show_empty_chapters,
                 st.session_state.get("profile_summary",""),
-                st.session_state.get("pdf_template", "natural")
+                template,
+                ck
             )
             st.session_state["pdf_dirty"] = False
+            # Sanity check so we don't silently end up with no button
+            if not st.session_state["pdf_bytes"]:
+                st.error("PDF builder returned empty bytes. Check that app-assets/* are readable and chapter items have images.")
+
 
     # ✅ Then (dedented!) place ONE download button after the loop
     # ---- 🎨 Design picker (3 choices) ----
     st.markdown("<div class='section-title'>🎨 Choose your download design</div>", unsafe_allow_html=True)
 
-    # Thumbnails you shared (already on disk)
-    TPL_PREV_1 = sign_blob_url("app-assets/preview_polaroid.png")
-    TPL_PREV_2 = sign_blob_url("app-assets/preview_travel.png")
-    TPL_PREV_3 = sign_blob_url("app-assets/preview_natural.png")
 
 
+    TPL_PREV_1 = _preview_asset("preview_polaroid.png")
+    TPL_PREV_2 = _preview_asset("preview_travel.png")
+    TPL_PREV_3 = _preview_asset("preview_natural.png")
 
-    st.session_state.setdefault("pdf_template", "natural")
+
+    #st.session_state.setdefault("pdf_template", "natural")
+    st.session_state.setdefault("pdf_template", None)   # no default until user picks
+    st.session_state.setdefault("want_pdf", False)      # build gate
+    
+
+
     cc1, cc2, cc3 = st.columns(3)
+
+
     with cc1:
-        st.image(TPL_PREV_1, caption="", use_container_width=True)
+        st.image(TPL_PREV_1, use_container_width=True)     # <-- no caption=""
         if st.button("Use Classic Polaroid", key="tpl_polaroid"):
             st.session_state["pdf_template"] = "polaroid"
-            _rebuild_pdf_now()
+            st.session_state["want_pdf"] = True
+            st.session_state["_last_built_ck"] = None
             st.rerun()
 
     with cc2:
-        st.image(TPL_PREV_2, caption="", use_container_width=True)
+        st.image(TPL_PREV_2, use_container_width=True)     # <-- no caption=""
         if st.button("Use Travel Scrapbook", key="tpl_travel"):
             st.session_state["pdf_template"] = "travel"
-            _rebuild_pdf_now()
+            st.session_state["want_pdf"] = True
+            st.session_state["_last_built_ck"] = None
             st.rerun()
 
     with cc3:
-        st.image(TPL_PREV_3, caption="", use_container_width=True)
+        st.image(TPL_PREV_3, use_container_width=True)     # <-- no caption=""
         if st.button("Use Natural Moodboard", key="tpl_natural"):
             st.session_state["pdf_template"] = "natural"
-            _rebuild_pdf_now()
+            st.session_state["want_pdf"] = True
+            st.session_state["_last_built_ck"] = None
             st.rerun()
 
 
+    # --- Build PDF only after a template is selected ---
+    template = st.session_state.get("pdf_template")
+    ready_now = False
 
-    sel_map = {
-        "polaroid":"Classic Polaroid",
-        "travel":"Travel Scrapbook",
-        "natural":"Natural Moodboard"
-    }
-    st.caption(f"Selected design: **{sel_map.get(st.session_state['pdf_template'], 'Classic Polaroid')}**")
+    if template:
+        ck = _scrapbook_ck(classification, chapters, blob_folder, template)
+        needs_build = (
+            st.session_state.get("_last_built_ck") != ck
+            or st.session_state.get("pdf_bytes") is None
+        )
 
-    # ---- Build PDF on demand (never automatically on replace/undo/template change) ----
-    template = st.session_state.get("pdf_template", "polaroid")
+        if st.session_state.get("want_pdf") and needs_build:
+            with st.spinner("Rebuilding your PDF…"):
+                st.session_state["pdf_bytes"] = _build_pdf_cached(
+                    classification,
+                    chapters,
+                    blob_folder,
+                    show_empty_chapters,
+                    st.session_state.get("profile_summary",""),
+                    template,
+                    ck
+                )
+                st.session_state["_last_built_ck"] = ck
 
-    if st.session_state.get("pdf_bytes") is None:
-        st.warning("Building your PDF…")
-        _rebuild_pdf_now()
+        # up-to-date?
+        ready_now = (
+            st.session_state.get("pdf_bytes") is not None
+            and st.session_state.get("_last_built_ck") == ck
+        )
 
+    # Selected design label (only if chosen)
+    sel_map = {"polaroid":"Classic Polaroid","travel":"Travel Scrapbook","natural":"Natural Moodboard"}
+    if template:
+        st.caption(f"Selected design: **{sel_map.get(template, template)}**")
+    else:
+        st.caption("Choose a design to build your PDF.")
 
-        
 
     st.markdown('<div class="card" style="position:sticky; bottom:12px; z-index:5;">', unsafe_allow_html=True)
-    st.download_button(
-        "📥 Download Scrapbook PDF",
-        data=st.session_state.get("pdf_bytes") or b"",
-        file_name="facebook_scrapbook.pdf",
-        mime="application/pdf",
-        key="download_pdf_btn",
-        disabled=(st.session_state.get("pdf_bytes") is None) or st.session_state.get("pdf_dirty", True)
-    )
+    if ready_now:
+        st.download_button(
+            "📥 Download Scrapbook PDF",
+            data=st.session_state["pdf_bytes"],
+            file_name="facebook_scrapbook.pdf",
+            mime="application/pdf",
+            key="download_pdf_btn_ready",
+        )
+    else:
+        if template and st.session_state.get("want_pdf"):
+            st.caption("Rebuilding your PDF…")
+        else:
+            st.caption("Pick a design above to generate your PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+
 
 
 
