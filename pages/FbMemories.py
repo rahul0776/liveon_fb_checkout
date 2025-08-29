@@ -677,7 +677,51 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
         st.error(f"❌ Azure Function error: {err}")
         st.stop()
 
+# --- FORCE-JSON chapter parser ---
+def parse_chapters_strict(raw: str) -> list[str]:
+    """
+    Expect JSON like {"chapters": ["A", "B", ...]}.
+    If the model wrapped it in text or code fences, try to extract the JSON.
+    Falls back to a loose parser as a last resort.
+    """
+    raw = (raw or "").strip()
 
+    # A) direct JSON
+    try:
+        data = json.loads(raw)
+    except Exception:
+        data = None
+
+    # B) JSON fenced/embedded somewhere in the text
+    if not isinstance(data, (dict, list)):
+        m = re.search(r"\{[\s\S]*\}", raw)  # first {...}
+        if m:
+            try:
+                data = json.loads(m.group(0))
+            except Exception:
+                data = None
+
+    chapters: list[str] = []
+    if isinstance(data, dict) and isinstance(data.get("chapters"), list):
+        chapters = [str(t).strip() for t in data["chapters"] if isinstance(t, str) and str(t).strip()]
+    elif isinstance(data, list):  # rare case: model returned a bare list
+        chapters = [str(t).strip() for t in data if isinstance(t, str) and str(t).strip()]
+
+    # C) Last-resort fallback: your loose text extractor
+    if not chapters:
+        chapters = extract_titles(raw)
+
+    # normalize/clean
+    out, seen = [], set()
+    for t in chapters:
+        t = re.sub(r"\s+", " ", t).strip(' "\'“”')
+        if len(t) < 3 or t.lower() in {"none", "null", "undefined"}:
+            continue
+        if t not in seen:
+            seen.add(t); out.append(t)
+
+    # enforce a reasonable count
+    return out[:12]
 # ── HELPERS ────────────────────────────────────────────────
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -1945,24 +1989,41 @@ if "classification" not in st.session_state:
         with st.spinner("📚 Generating scrapbook chapters from evaluation…"):
             followup_res = call_function("ask_followup_on_answer", {
                 "previous_answer": eval_text,
-                "question": """
-            Based on this evaluation, suggest thematic chapter titles for a scrapbook of this person’s life.
+                "question": f"""
+        You are helping structure a scrapbook. Suggest 6–12 practical, post-grounded chapter titles.
 
-            ⚠️ IMPORTANT:
-            - Only suggest chapter titles if there are Facebook posts that support them.
-            - Avoid creating abstract or philosophical chapter names unless there are posts that clearly fit those themes.
-            - Each chapter should be grounded in observable events, emotions, or patterns in the posts.
-            - Prefer practical and relatable themes over vague concepts.
+        RULES
+        - Only suggest chapters that are clearly supported by the user’s posts.
+        - Avoid abstract/philosophical themes.
+        - Keep titles short and relatable (3–5 words each). No numbering/bullets.
 
-            Respond with a list of chapter titles only.
-            """
+        RETURN FORMAT (IMPORTANT)
+        Return **JSON only**, with exactly this shape and nothing else:
+        {{
+        "chapters": [
+            "Family First",
+            "Celebrating Love",
+            "Simple Pleasures"
+        ]
+        }}
+        """,
+                # 👉 this flag is understood by your Function; it nudges the model/tooling to emit JSON
+                "format": "json",
             })
 
-            followup_text = followup_res.text
-        st.markdown("### 🗂️ Suggested Chapter Themes"); st.markdown(followup_text)
-        
-            # 3️⃣ Extract chapter titles
-        chapters = extract_titles(followup_text)
+        followup_text = followup_res.text
+        st.markdown("### 🗂️ Suggested Chapter Themes")
+        # Show raw once (useful during debugging)
+        if advanced_mode: st.code(followup_text)
+
+        # Parse strictly (JSON-first, with robust fallbacks)
+        chapters = parse_chapters_strict(followup_text)
+
+        if advanced_mode: st.write("**Parsed chapters:**", chapters)
+        if not chapters:
+            st.warning("We couldn't organize these memories yet. Try uploading more posts.")
+            st.stop()
+
         if advanced_mode:
             st.write("**Parsed chapters:**", chapters)
         if not chapters:
