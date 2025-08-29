@@ -59,7 +59,7 @@ for _fn in ("write", "text", "caption", "markdown", "code"):
 # ── PAGE CONFIG ────────────────────────────────────────────────
 st.set_page_config(page_title="🧠 Facebook Memories", layout="wide")
 
-from utils.theme import inject_global_styles
+from pages.utils.theme import inject_global_styles
 
 
 
