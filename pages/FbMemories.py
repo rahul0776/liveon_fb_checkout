@@ -338,15 +338,25 @@ def _cap(s) -> str:
 
 
 def _text(s) -> str:
-    if s is None: 
+    if s is None:
         return ""
+    # treat numbers / number-like strings (e.g., "0", "1") as empty captions
+    if isinstance(s, (int, float)):
+        return "" if s == 0 else str(s).strip()
     s = str(s).strip()
-    return "" if s.lower() in {"none","null","undefined","na","n/a"} else s
+    if s.lower() in {"none","null","undefined","na","n/a"}:
+        return ""
+    if s.isdigit() and len(s) <= 2:   # drop "0", "1", etc.
+        return ""
+    return s
 
 def compose_caption(message, context):
     m = _text(message)
+    # extra guard in case something slips through
+    if m.isdigit(): 
+        m = ""
     c = _text(context)
-    if m and c: 
+    if m and c:
         return f"{m} — 🧠 {c}"
     return m or (f"🧠 {c}" if c else "📷")
 
