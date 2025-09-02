@@ -330,6 +330,8 @@ def _cap(s) -> str:
     s = str(s).strip()
     if not s or s.lower() in {"none", "null", "undefined"}:
         return ""
+    if s.isdigit():                # <-- ADD THIS: drop digit-only captions like "0"
+        return ""
     # strip trailing ‘🧠 None’ (various dashes/spaces) or standalone 🧠 with nothing useful
     s = re.sub(r"(?:\s*[–—-]\s*)?🧠\s*(?:none|null|undefined)?\s*$", "", s, flags=re.IGNORECASE).strip()
     # strip quoted empties
@@ -740,7 +742,10 @@ def _is_displayable_image_ref(u) -> bool:
     s = str(u).strip()
     if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
         return False
-    if s.isdigit():                # <-- kills "0", "1", ...
+    if s.isdigit():                # <-- keep killing "0", "1", ...
+        return False
+    # NEW: never show theme/demo assets in chapter grids / PDFs
+    if s.lower().startswith("app-assets/"):   # <-- ADD THIS LINE
         return False
     return s.startswith("http") or ("/" in s)  # allow Azure blob paths
 
