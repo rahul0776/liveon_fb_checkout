@@ -733,6 +733,17 @@ def parse_chapters_strict(raw: str) -> list[str]:
     # enforce a reasonable count
     return out[:12]
 # ── HELPERS ────────────────────────────────────────────────
+def _is_displayable_image_ref(u) -> bool:
+    """Accept http(s) URLs or blob-like paths. Reject empties, 'none', 'download failed', and bare digits like '0'."""
+    if not u:
+        return False
+    s = str(u).strip()
+    if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
+        return False
+    if s.isdigit():                # <-- kills "0", "1", ...
+        return False
+    return s.startswith("http") or ("/" in s)  # allow Azure blob paths
+
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
         t = t.strip()
@@ -781,16 +792,9 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
         # ✅ SANITIZE
-        def _good_ref(u):
-            if not u: return False
-            s = str(u).strip()
-            if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
-                return False
-            if s.isdigit():  # "0", "1", etc.
-                return False
-            return s.startswith("http") or ("/" in s)  # allow blob paths
 
-        images = [u for u in (images or []) if _good_ref(u)]
+        raw_images = p.get("images") or []
+        images = [u for u in raw_images if _is_displayable_image_ref(u)]
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
 
@@ -859,8 +863,8 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
 
     for post_idx, post in enumerate(chapter_posts):
         images = post.get("images", []) or ([post.get("image")] if "image" in post else [])
-        # ✅ sanitize
-        images = [u for u in images if u and str(u).strip().lower() != "none"]
+        images = [u for u in images if _is_displayable_image_ref(u)]
+            
         if not images:
             continue
 
@@ -1000,7 +1004,7 @@ def _flatten_chapter_items(classification: dict, chap: str) -> list[dict]:
     for p in classification.get(chap, []):
         imgs = p.get("images", []) or ([p.get("image")] if "image" in p else [])
         # ✅ SANITIZE
-        imgs = [u for u in imgs if u and str(u).strip().lower() != "none"]
+        imgs = [u for u in imgs if _is_displayable_image_ref(u)]
         if not imgs:
             continue
 
@@ -1668,6 +1672,7 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
         items = []
         for p in classification.get(chap, []):
             imgs = p.get("images", []) or ([p.get("image")] if "image" in p else [])
+            imgs = [u for u in imgs if _is_displayable_image_ref(u)]
             if not imgs:
                 continue
             crafted = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
@@ -1675,6 +1680,7 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
             for u in imgs:
                 cap = f"{date_s} — {crafted}" if date_s else crafted
                 items.append({"img": u, "caption": cap})
+
         return items
 
     page_no = 1
@@ -1866,7 +1872,7 @@ for post in posts:
         imgs = [post["picture"]]
 
     # ✅ SANITIZE: drop null/placeholder entries to avoid 'None' render
-    imgs = [u for u in imgs if u and str(u).strip().lower() != "none"]
+    imgs = [u for u in imgs if _is_displayable_image_ref(u)]
 
     post["normalized_images"] = imgs
 
@@ -2128,7 +2134,7 @@ if "classification" not in st.session_state:
                 if not images and "image" in p:
                     images = [p["image"]]
                 # ✅ sanitize
-                images = [u for u in images if u and str(u).strip().lower() != "none"]
+                images = [u for u in images if _is_displayable_image_ref(u)]
 
                 if images:
                     for img_idx, img_url in enumerate(images):
@@ -2185,12 +2191,14 @@ if "classification" in st.session_state:
         all_keys = set()
         for p in posts_all:
             for u in (p.get("images") or p.get("normalized_images") or []):
-                if u: all_keys.add(normalize_url(str(u)))
+                if _is_displayable_image_ref(u):
+                    all_keys.add(normalize_url(str(u)))
         used = set()
         for plist in classification.values():
             for p in plist:
                 for u in p.get("images", []):
-                    used.add(normalize_url(str(u)))
+                    if _is_displayable_image_ref(u):
+                        used.add(normalize_url(str(u)))
         return len(used), max(1, len(all_keys))
 
     used_ct, total_ct = _coverage(st.session_state.get("all_posts_raw", []), classification)
