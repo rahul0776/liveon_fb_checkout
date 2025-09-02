@@ -781,7 +781,16 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
         # ✅ SANITIZE
-        images = [u for u in images if u and str(u).strip().lower() != "none"]
+        def _good_ref(u):
+            if not u: return False
+            s = str(u).strip()
+            if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
+                return False
+            if s.isdigit():  # "0", "1", etc.
+                return False
+            return s.startswith("http") or ("/" in s)  # allow blob paths
+
+        images = [u for u in (images or []) if _good_ref(u)]
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
 
