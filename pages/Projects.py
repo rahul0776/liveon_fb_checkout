@@ -663,7 +663,7 @@ if backups:
                     "user_id": st.session_state.get("fb_id", "")
                 }
 
-                st.switch_page("FB_Backup.py")
+                st.switch_page("pages/FB_Backup.py")
 
 
             if SHOW_MEMORIES_BUTTON:
