@@ -14,7 +14,9 @@ from urllib.parse import quote_plus
 import shutil, zipfile, concurrent.futures, random
 import time
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
-
+SHOW_MEMORIES_BUTTON = str(
+    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "false"))
+).strip().lower() in ("1", "true", "yes", "on")
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
     layout="wide",
@@ -664,9 +666,10 @@ if backups:
             except Exception:
                 st.caption("No posts file available to download.")
 
-            if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
-                st.session_state["selected_backup"] = backup['id']
-                st.switch_page("pages/FbMemories.py")
+            if SHOW_MEMORIES_BUTTON:
+                if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
+                    st.session_state["selected_backup"] = backup['id']
+                    st.switch_page("pages/FbMemories.py")
 
         st.divider()
     st.markdown("</div>", unsafe_allow_html=True)
