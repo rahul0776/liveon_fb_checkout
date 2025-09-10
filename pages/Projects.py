@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 import shutil, zipfile, concurrent.futures, random
 import time
+
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
     st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "false"))
@@ -652,19 +653,18 @@ if backups:
 
         with cols[4]:
             posts_blob_path = f"{backup['id']}/posts+cap.json"
-            try:
-                blob_client = container_client.get_blob_client(posts_blob_path)
-                blob_client.get_blob_properties()
-                blob_data = blob_client.download_blob().readall()
-                st.download_button(
-                    label="📥 Download the Backup $9.99",
-                    data=blob_data,
-                    file_name=f"{backup['id'].replace('/', '_')}.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-            except Exception:
-                st.caption("No posts file available to download.")
+            download_name   = f"{backup['id'].replace('/', '_')}.json"
+
+            if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
+                # stash what to download and go to the checkout page
+                st.session_state["pending_download"] = {
+                    "blob_path": posts_blob_path,
+                    "file_name": download_name,
+                    "user_id": st.session_state.get("fb_id", "")
+                }
+
+                st.switch_page("FB_Backup.py")
+
 
             if SHOW_MEMORIES_BUTTON:
                 if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):

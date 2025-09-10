@@ -2,6 +2,7 @@ import os, json
 from pathlib import Path
 import streamlit as st
 import stripe
+from urllib.parse import urlencode
 
 # ----------------- MUST BE FIRST -----------------
 st.set_page_config(
@@ -19,7 +20,6 @@ except ModuleNotFoundError:
 
 if inject_global_styles:
     inject_global_styles()
-
 
 # ----------------- Helpers -----------------
 def _get_secret(name: str, default: str | None = None) -> str | None:
@@ -61,6 +61,13 @@ CANCEL_URL  = _get_secret("STRIPE_CANCEL_URL",  "http://localhost:8501/cancel")
 BILLING_READY = bool(STRIPE_SECRET_KEY)
 if BILLING_READY:
     stripe.api_key = STRIPE_SECRET_KEY  # type: ignore[arg-type]
+
+pending = st.session_state.get("pending_download")  # set in Projects.py
+success_url_for_item = SUCCESS_URL
+if pending and isinstance(pending, dict) and pending.get("blob_path"):
+    success_url_for_item = f"{SUCCESS_URL}?{urlencode({'blob': pending['blob_path'], 'name': pending.get('file_name', 'backup.json')})}"
+    # Optional hint for the user
+    st.caption(f"After payment, your download of **{pending.get('file_name','backup.json')}** will start automatically.")
 
 # ----------------- Page CSS (Minedco look) -----------------
 st.markdown("""
@@ -111,21 +118,29 @@ price_is_placeholder = (PRICE_ID or "").endswith("placeholder")
 # Button (disabled if Stripe not ready or price missing)
 if st.button("💳 Buy Now for $9.99", disabled=(not BILLING_READY or price_is_placeholder)):
     try:
+        # --- SAFE success_url that works with or without existing query params
+        sep = '&' if '?' in success_url_for_item else '?'
+        success_url_with_session = f"{success_url_for_item}{sep}session_id={{CHECKOUT_SESSION_ID}}"
+
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             line_items=[{"price": PRICE_ID, "quantity": 1}],
             mode="payment",
-            success_url=SUCCESS_URL,
+            success_url=success_url_with_session,  # <— use the safe URL
             cancel_url=CANCEL_URL,
             allow_promotion_codes=True,
             metadata={
                 "fb_id": st.session_state.get("fb_id", ""),
                 "fb_name": st.session_state.get("fb_name", ""),
+                "blob": (pending or {}).get("blob_path", ""),
+                "name": (pending or {}).get("file_name", "")
             },
-            customer_email=st.session_state.get("fb_email")  # ok if None
+            customer_email=st.session_state.get("fb_email")
         )
+
         st.success("✅ Checkout session created!")
         st.link_button("👉 Continue to Secure Checkout", session.url)
+        st.session_state.pop("pending_download", None)
         st.caption("You’ll be taken to Stripe to complete your payment.")
     except Exception as e:
         st.error(f"❌ Error creating Stripe Checkout session:\n\n{e}")
