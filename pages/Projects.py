@@ -189,15 +189,19 @@ st.markdown(f"""
 CONTAINER = "backup"
 BACKUP_DIR = Path("facebook_data"); BACKUP_DIR.mkdir(exist_ok=True)
 IMG_DIR = BACKUP_DIR / "images"; IMG_DIR.mkdir(exist_ok=True)
-
+MAX_FB_PAGES = int(st.secrets.get("FB_MAX_PAGES", os.getenv("FB_MAX_PAGES", "1000")))
+DEFAULT_PAGE_SIZE = int(st.secrets.get("FB_PAGE_SIZE", os.getenv("FB_PAGE_SIZE", "100")))
 def fetch_data(endpoint, token, since=None, until=None, fields=None):
     if endpoint is None: return {}
-    url = f"https://graph.facebook.com/me/{endpoint}?access_token={token}"
+    # add limit param
+    url = f"https://graph.facebook.com/me/{endpoint}?access_token={token}&limit={DEFAULT_PAGE_SIZE}"
     if fields: url += f"&fields={fields}"
-    if since: url += f"&since={since}"
-    if until: url += f"&until={until}"
+    if since:  url += f"&since={since}"
+    if until:  url += f"&until={until}"
+
     data, pages = [], 0
-    while url and pages < 20:
+    # remove hard 20-page cap; use high configurable max instead
+    while url and pages < MAX_FB_PAGES:
         try:
             res = requests.get(url, timeout=20).json()
             if "error" in res:
@@ -209,6 +213,11 @@ def fetch_data(endpoint, token, since=None, until=None, fields=None):
         except Exception as e:
             st.warning(f"Network error on {endpoint}: {e}")
             break
+
+    # optional heads-up if you actually hit the max and still had a next page
+    if url and pages >= MAX_FB_PAGES:
+        st.warning(f"Stopped at FB_MAX_PAGES={MAX_FB_PAGES}. Increase FB_MAX_PAGES if you need more.")
+
     return data
 
 def save_json(obj, name):
