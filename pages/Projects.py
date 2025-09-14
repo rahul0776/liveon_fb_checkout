@@ -652,18 +652,33 @@ if backups:
                 st.rerun()   # CHANGED
 
         with cols[4]:
+            # Try to find a .zip under this backup prefix; fall back to the JSON if not found
+            zip_blob_path, zip_name = None, None
+            try:
+                for b in container_client.list_blobs(name_starts_with=f"{backup['id']}/"):
+                    if b.name.lower().endswith(".zip"):
+                        zip_blob_path = b.name
+                        zip_name = b.name.rsplit("/", 1)[-1]
+                        break
+            except Exception:
+                pass
+
+            # Fallback (we'll zip this JSON on the success page if needed)
             posts_blob_path = f"{backup['id']}/posts+cap.json"
-            download_name   = f"{backup['id'].replace('/', '_')}.json"
+
+            # What we pass to checkout
+            blob_for_checkout = zip_blob_path or posts_blob_path
+            # Name we want the user to get (prefer .zip)
+            download_name = zip_name or f"{backup['id'].replace('/', '_')}.zip"
 
             if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
-                # stash what to download and go to the checkout page
                 st.session_state["pending_download"] = {
-                    "blob_path": posts_blob_path,
+                    "blob_path": blob_for_checkout,
                     "file_name": download_name,
                     "user_id": st.session_state.get("fb_id", "")
                 }
+                st.switch_page("FB_Backup.py")
 
-                st.switch_page("pages/FB_Backup.py")
 
 
             if SHOW_MEMORIES_BUTTON:

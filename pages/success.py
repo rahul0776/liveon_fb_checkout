@@ -1,122 +1,106 @@
-import os
-import time
-import json
-import hashlib
+import os, io, json, hashlib, time, zipfile
 from pathlib import Path
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
-
 import streamlit as st
-
-# Azure Blob imports
-from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
-
-# Optional Stripe verification
-try:
-    import stripe
-except Exception:
-    stripe = None
+from azure.storage.blob import BlobServiceClient
+import stripe
 
 st.set_page_config(page_title="Payment Success", page_icon="✅")
 
 st.title("✅ Payment Successful")
-st.markdown("Thank you for your purchase! Your download is starting…")
+st.caption("Your download will begin automatically. If it doesn’t, use the button below.")
 
-# -- Read query params ---------------------------------------------------------
-try:
-    qp = st.query_params  # Streamlit ≥ 1.31
-    get_q = lambda k, d=None: qp.get(k, d)
-except Exception:
-    qp = st.experimental_get_query_params()
-    get_q = lambda k, d=None: (qp.get(k) or [d])[0]
-
-blob_path  = get_q("blob")
-file_name  = get_q("name", "backup.json")
-session_id = get_q("session_id")
-
-# -- Optional: verify payment with Stripe -------------------------------------
-STRIPE_SECRET_KEY = st.secrets.get("STRIPE_SECRET_KEY") or os.getenv("STRIPE_SECRET_KEY")
-if session_id and STRIPE_SECRET_KEY and stripe is not None:
-    try:
-        stripe.api_key = STRIPE_SECRET_KEY
-        s = stripe.checkout.Session.retrieve(session_id, expand=["payment_intent"])
-        if s.get("payment_status") != "paid":
-            st.error("We couldn’t confirm your payment yet. Please wait a moment or refresh this page.")
-            st.stop()
-    except Exception as e:
-        # If verification fails, we still proceed to try the download but show a warning
-        st.warning(f"Could not verify payment status: {e}")
-
-# -- Save fb_token to per-user cache (your previous behavior) -----------------
+# --- Save fb_token to per-user cache (unchanged)
 if "fb_token" in st.session_state:
     cache_dir = Path("cache")
     cache_dir.mkdir(exist_ok=True)
     token_hash = hashlib.md5(st.session_state["fb_token"].encode()).hexdigest()
-    cache_file = cache_dir / f"backup_cache_{token_hash}.json"
-    with open(cache_file, "w") as f:
-        json.dump({"fb_token": st.session_state["fb_token"]}, f)
+    (cache_dir / f"backup_cache_{token_hash}.json").write_text(
+        json.dumps({"fb_token": st.session_state["fb_token"]})
+    )
 
-# -- If we didn't get a blob target, show a friendly message -------------------
-if not blob_path:
-    st.info("No download target provided. You can return to the Projects page and try again.")
-    st.link_button("Back to Projects", "Projects.py")
-    st.stop()
-
-# -- Create a short-lived SAS URL to auto-start the download -------------------
+# --- Config
 AZ_CONN = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
-if not AZ_CONN:
-    st.error("Missing AZURE_CONNECTION_STRING. Ask support if this persists.")
+STRIPE_SECRET_KEY = st.secrets.get("STRIPE_SECRET_KEY") or os.getenv("STRIPE_SECRET_KEY")
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
+
+# --- Incoming params from success_url
+blob_rel_path = st.query_params.get("blob", "")
+download_name = st.query_params.get("name", "backup.zip")
+session_id    = st.query_params.get("session_id", "")
+
+if not blob_rel_path:
+    st.error("Missing download information. Please contact support.")
     st.stop()
 
-service = BlobServiceClient.from_connection_string(AZ_CONN)
-account_name = service.account_name
-
-# Extract account key from the connection string (required for SAS creation)
-account_key = None
-for part in AZ_CONN.split(";"):
-    if part.startswith("AccountKey="):
-        account_key = part.split("=", 1)[1]
-        break
-
-container_name = "backup"   # your container
-expires = datetime.utcnow() + timedelta(minutes=10)
-
-sas = None
-if account_key:
+# --- (Optional) verify Stripe says 'paid'
+paid_ok = True
+if session_id and STRIPE_SECRET_KEY:
     try:
-        sas = generate_blob_sas(
-            account_name=account_name,
-            container_name=container_name,
-            blob_name=blob_path,
-            account_key=account_key,
-            permission=BlobSasPermissions(read=True),
-            expiry=expires,
-        )
-    except Exception as e:
-        st.warning(f"Could not generate a SAS URL automatically: {e}")
+        s = stripe.checkout.Session.retrieve(session_id)
+        paid_ok = (s.get("payment_status") == "paid")
+    except Exception:
+        paid_ok = True  # don't hard-fail if Stripe check hiccups
+if not paid_ok:
+    st.error("We couldn’t verify your payment. If you were charged, please contact support.")
+    st.stop()
 
-# If SAS creation succeeded, redirect immediately to trigger download
-if sas:
-    sas_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{quote_plus(blob_path)}?{sas}"
+# --- Fetch blob from Azure
+try:
+    bsc = BlobServiceClient.from_connection_string(AZ_CONN)
+    bc  = bsc.get_blob_client(container="backup", blob=blob_rel_path)
+    file_bytes = bc.download_blob().readall()
+except Exception as e:
+    st.error(f"Couldn’t fetch your file: {e}")
+    st.stop()
 
-    # Auto-redirect via meta refresh (works in Streamlit)
-    st.markdown(f"<meta http-equiv='refresh' content='0; url={sas_url}'>", unsafe_allow_html=True)
-
-    st.success("Your download should begin automatically.")
-    st.link_button("If it doesn’t, click to download now", sas_url)
+# --- If we got a JSON blob, wrap it into a ZIP in-memory; if it's already a ZIP, pass through
+mime = "application/zip"
+if blob_rel_path.lower().endswith(".zip"):
+    data = file_bytes
+    if not download_name.lower().endswith(".zip"):
+        download_name = download_name.rsplit(".", 1)[0] + ".zip"
 else:
-    # Fallback: stream the blob and offer a manual download button
-    try:
-        blob_client = service.get_container_client(container_name).get_blob_client(blob_path)
-        data = blob_client.download_blob().readall()
-        st.download_button("Download now", data=data, file_name=file_name, mime="application/json")
-    except Exception as e:
-        st.error(f"Could not prepare your download: {e}")
+    # turn the JSON into a zip with a reasonable internal filename
+    internal_json_name = (
+        download_name if download_name.lower().endswith(".json")
+        else "posts+cap.json"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(internal_json_name, file_bytes)
+    data = buf.getvalue()
+    if not download_name.lower().endswith(".zip"):
+        base = download_name.rsplit(".", 1)[0]
+        download_name = (base or "backup") + ".zip"
 
-# Helpful links
+# --- The actual download button
+st.download_button(
+    "⬇️ Download your backup",
+    data=data,
+    file_name=download_name,
+    mime=mime,
+    type="primary",
+    use_container_width=True,
+    key="dl_zip_btn",
+)
+
+# --- Best-effort auto-click of the button
+st.markdown(
+    """
+    <script>
+      const tryClick = () => {
+        const btns = Array.from(parent.document.querySelectorAll('button'));
+        const btn = btns.find(b => b.innerText && b.innerText.includes('Download your backup'));
+        if (btn) btn.click();
+      };
+      setTimeout(tryClick, 600);
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.divider()
-col1, col2 = st.columns(2)
-with col1:
-    st.link_button("⬅️ Back to Projects", "Projects.py")
-with col2:
-    st.link_button("📘 Go to Memories", "pages/FbMemories.py")
+if st.button("📘 Go to Memories"):
+    st.switch_page("pages/FbMemories.py")
