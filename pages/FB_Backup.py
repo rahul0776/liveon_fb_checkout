@@ -90,12 +90,15 @@ def _resolve_price_id(price_or_prod: str | None) -> str | None:
 RESOLVED_PRICE_ID = _resolve_price_id(RAW_PRICE_OR_PRODUCT_ID)
 
 pending = st.session_state.get("pending_download")  # set in Projects.py
+display_name = (pending or {}).get("file_name") or "backup.zip"
+if not display_name.lower().endswith(".zip"):
+    display_name = display_name.rsplit(".", 1)[0] + ".zip"
 success_url_for_item = SUCCESS_URL
 if pending and isinstance(pending, dict) and pending.get("blob_path"):
-    # NOTE: keep existing query params safe
     sep0 = '&' if '?' in SUCCESS_URL else '?'
-    success_url_for_item = f"{SUCCESS_URL}{sep0}{urlencode({'blob': pending['blob_path'], 'name': pending.get('file_name', 'backup.json')})}"
-    st.caption(f"After payment, your download of **{pending.get('file_name','backup.json')}** will start automatically.")
+    # pass the forced .zip name to success.py
+    success_url_for_item = f"{SUCCESS_URL}{sep0}{urlencode({'blob': pending['blob_path'], 'name': display_name})}"
+    st.caption(f"After payment, your download of **{display_name}** will start automatically.")
 
 # ----------------- Page CSS (Minedco look) -----------------
 st.markdown("""
