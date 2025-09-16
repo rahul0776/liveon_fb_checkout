@@ -16,7 +16,7 @@ import time
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
-    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "false"))
+    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "true"))
 ).strip().lower() in ("1", "true", "yes", "on")
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
