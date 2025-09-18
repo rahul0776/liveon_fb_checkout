@@ -24,19 +24,15 @@ if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
 # Query params from success_url
-blob_rel_path = st.query_params.get("blob", "")
-download_name = st.query_params.get("name", "backup.zip")
+blob_rel_path = st.query_params.get("blob", "")      # e.g. "<prefix>/posts+cap.json" or "<prefix>/something.zip"
+download_name = st.query_params.get("name", "")      # suggested filename
 session_id    = st.query_params.get("session_id", "")
 
 if not blob_rel_path:
     st.error("Missing download information. Please contact support.")
     st.stop()
 
-# Force the outgoing filename to .zip (no matter what the caller sent)
-if not download_name.lower().endswith(".zip"):
-    download_name = download_name.rsplit(".", 1)[0] + ".zip"
-
-# Optional: verify payment
+# Optional: verify payment (best-effort)
 paid_ok = True
 if session_id and STRIPE_SECRET_KEY:
     try:
@@ -48,33 +44,67 @@ if not paid_ok:
     st.error("We couldn’t verify your payment. If you were charged, please contact support.")
     st.stop()
 
-# Fetch blob
+# Derive the backup prefix from the provided blob path
+# "12345/John_20250101_101010/posts+cap.json" -> "12345/John_20250101_101010"
+prefix = blob_rel_path.strip("/")
+if not prefix:
+    st.error("Invalid blob path.")
+    st.stop()
+if not blob_rel_path.endswith("/"):
+    prefix = prefix.rsplit("/", 1)[0]
+else:
+    prefix = prefix.rstrip("/")
+
+# Connect to Azure
 try:
     bsc = BlobServiceClient.from_connection_string(AZ_CONN)
-    bc  = bsc.get_blob_client(container="backup", blob=blob_rel_path)
-    file_bytes = bc.download_blob().readall()
+    cc  = bsc.get_container_client("backup")
 except Exception as e:
-    st.error(f"Couldn’t fetch your file: {e}")
+    st.error(f"Azure connection failed: {e}")
     st.stop()
 
-# Serve ZIP:
-# - If the blob is already a .zip → pass through
-# - If it's not → wrap it into a .zip with a stable internal name
-mime = "application/octet-stream"  # prevent browser content sniffing
-if blob_rel_path.lower().endswith(".zip"):
-    data = file_bytes
-else:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("posts+cap.json", file_bytes)  # internal filename inside the zip
-    data = buf.getvalue()
+# Build curated ZIP (only images/ + profile.json)
+images_prefix = f"{prefix}/images/"
+profile_blob  = f"{prefix}/profile.json"
 
-# Download button (the auto-click JS is optional and left out to avoid iframe issues)
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    # Add profile.json (if present)
+    try:
+        bc_profile = cc.get_blob_client(profile_blob)
+        if bc_profile.exists():
+            zf.writestr("profile.json", bc_profile.download_blob().readall())
+        else:
+            zf.writestr("profile.json", json.dumps({"warning": "profile.json not found"}, indent=2))
+    except Exception as e:
+        zf.writestr("profile.json", json.dumps({"error": f"could not fetch profile.json: {e}"}, indent=2))
+
+    # Add all images/* under this prefix
+    try:
+        for blob in cc.list_blobs(name_starts_with=images_prefix):
+            arcname = blob.name[len(prefix)+1:]  # keep "images/..." inside the zip
+            try:
+                img_bytes = cc.get_blob_client(blob.name).download_blob().readall()
+                zf.writestr(arcname, img_bytes)
+            except Exception as e_img:
+                zf.writestr(arcname + ".txt", f"Could not fetch image: {e_img}")
+    except Exception as e:
+        zf.writestr("images/README.txt", f"Could not list images: {e}")
+
+data = buf.getvalue()
+
+# Force the outgoing filename to .zip, set a nice default if missing
+if not download_name:
+    download_name = prefix.replace("/", "_") + "_images_profile.zip"
+if not download_name.lower().endswith(".zip"):
+    download_name = download_name.rsplit(".", 1)[0] + ".zip"
+
+# Download button (ZIP only)
 st.download_button(
-    "⬇️ Download your backup",
+    "⬇️ Download your backup (images + profile.json)",
     data=data,
     file_name=download_name,
-    mime=mime,
+    mime="application/zip",
     type="primary",
     use_container_width=True,
     key="dl_zip_btn",
