@@ -32,28 +32,53 @@ def safe_token_hash(token: str) -> str:
     return hashlib.md5(token.encode()).hexdigest()
 
 def restore_session():
-    fb_token = st.session_state.get("fb_token")
-    if not fb_token:
+    """
+    Rehydrate fb_token / fb_id / fb_name from the cache directory even if the
+    Streamlit session was reset by a refresh.
+    """
+    # Already restored? nothing to do.
+    if st.session_state.get("fb_token") and st.session_state.get("fb_id") and st.session_state.get("fb_name"):
         return
-    cache_path = Path("cache") / f"backup_cache_{safe_token_hash(fb_token)}.json"
-    if not cache_path.exists():
+
+    cache_dir = Path("cache")
+    if not cache_dir.exists():
         return
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-        if cached.get("fb_token") != fb_token:
+
+    candidates = []
+
+    # If we *do* have a token, try its exact file first
+    cur_token = st.session_state.get("fb_token")
+    if cur_token:
+        candidates.append(cache_dir / f"backup_cache_{safe_token_hash(cur_token)}.json")
+
+    # Then try any backup_cache_*.json, newest first
+    others = sorted(cache_dir.glob("backup_cache_*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True)
+    for p in others:
+        if p not in candidates:
+            candidates.append(p)
+
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            token = data.get("fb_token")
+            if not token:
+                continue
+
+            st.session_state["fb_token"] = token
+
+            # Best-effort restore of cached profile/backup info (optional)
+            latest = data.get("latest_backup") or {}
+            st.session_state["fb_id"] = str(latest.get("user_id") or st.session_state.get("fb_id") or "")
+            st.session_state["fb_name"] = latest.get("Name") or st.session_state.get("fb_name")
+            st.session_state["latest_backup"] = latest or st.session_state.get("latest_backup")
+            st.session_state["new_backup_done"] = data.get("new_backup_done")
+            st.session_state["new_project_added"] = data.get("new_project_added")
             return
-        latest = cached.get("latest_backup") or {}
-        st.session_state.update({
-            "fb_token": cached.get("fb_token"),
-            "fb_id": str(latest.get("user_id") or st.session_state.get("fb_id") or ""),
-            "fb_name": latest.get("Name") or st.session_state.get("fb_name"),
-            "latest_backup": latest,
-            "new_backup_done": cached.get("new_backup_done"),
-            "new_project_added": cached.get("new_project_added"),
-        })
-    except Exception as e:
-        if DEBUG: st.warning(f"Could not restore session: {e}")
+        except Exception:
+            continue
+
 
 restore_session()
 

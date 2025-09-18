@@ -101,7 +101,7 @@ if not download_name.lower().endswith(".zip"):
 
 # Download button (ZIP only)
 st.download_button(
-    "⬇️ Download your backup (images + profile.json)",
+    "⬇️ Download your backup",
     data=data,
     file_name=download_name,
     mime="application/zip",
