@@ -526,6 +526,41 @@ def sign_blob_url(blob_path: str) -> str:
 
 from urllib.parse import unquote
 
+def _to_blob_path_if_ours_https(raw_url: str) -> str | None:
+    """
+    If raw_url is like:
+    https://<account>.blob.core.windows.net/backup/<blob_path>[?...]  → return <blob_path>
+    Otherwise return None.
+    """
+    try:
+        u = urlparse(str(raw_url))
+        if u.scheme in ("http", "https") and u.netloc.split(".")[0] == blob_service_client.account_name:
+            if u.path.startswith(f"/{CONTAINER}/"):
+                return u.path[len(f"/{CONTAINER}/"):].lstrip("/")
+    except Exception:
+        return None
+    return None
+
+def to_display_url(u: str) -> str:
+    """
+    Always return a displayable URL:
+    - blob paths (e.g. 'fbid/folder/images/x.jpg') → SAS via sign_blob_url(...)
+    - our Azure HTTPS URLs (no SAS) → convert to blob path and sign
+    - non-Azure HTTP URLs → return unchanged
+    - already-signed (?sig=) → return unchanged
+    """
+    if not u:
+        return ""
+    s = str(u)
+    if s.startswith("http"):
+        # already has a SAS?
+        if "sig=" in s:
+            return s
+        # our storage account & container → re-sign
+        blob_path = _to_blob_path_if_ours_https(s)
+        return sign_blob_url(blob_path) if blob_path else s
+    # plain blob path → sign
+    return sign_blob_url(s)
 query_params = st.query_params
 
 # -- Simple router to make navbar links work --
@@ -808,7 +843,7 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
             if not img:
                 continue
             # keep the original for display (preserves SAS/query)
-            display_url = img if str(img).startswith("http") else sign_blob_url(str(img))
+            display_url = to_display_url(img)
 
 
 
@@ -881,7 +916,7 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
 
         for img_idx, img_url in enumerate(images):
             with cols[post_idx % len(cols)]:   # ✅ safe modulo (fixes IndexError)
-                display_url = img_url if str(img_url).startswith("http") else sign_blob_url(str(img_url))
+                display_url = to_display_url(img_url)
 
                 key = normalize_url(display_url)
                 if key in seen_urls:
@@ -1034,8 +1069,8 @@ def _pdf_image_bytes(url: str):
     # Sign blob paths so they’re publicly readable for the fetch
     if not isinstance(url, str):
         url = str(url)
-    if not url.startswith("http"):
-        url = sign_blob_url(url)
+    url = to_display_url(url)
+
 
     headers = {
         "User-Agent": "Mozilla/5.0",
