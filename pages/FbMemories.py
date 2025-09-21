@@ -799,6 +799,48 @@ def _is_displayable_image_ref(u) -> bool:
     if s.lower().startswith("app-assets/"):
         return False
     return s.startswith("http") or ("/" in s)
+def _scrub_classification(cls: dict) -> dict:
+    """
+    Make sure every post has:
+      - images: list[str] with only real URLs/blob paths (no '0', 'None', app-assets)
+      - message/context_caption: cleaned text (no numeric-only like '0')
+    Drop empty/bad posts and normalise single-image fields.
+    """
+    def _ok_img(u):
+        if not isinstance(u, str): return False
+        s = u.strip()
+        if not s or s.lower() in {"none","null","undefined","download failed"}: return False
+        if s.isdigit(): return False
+        if s.lower().startswith("app-assets/"): return False
+        return s.startswith("http") or ("/" in s)
+
+    out = {}
+    for chap, items in (cls or {}).items():
+        new_items = []
+        for p in (items or []):
+            q = dict(p)  # shallow copy so we can preserve created_time/why, etc.
+
+            # normalise images
+            imgs = q.get("images")
+            if imgs is None and "image" in q:
+                imgs = [q.get("image")]
+            if not isinstance(imgs, list):
+                imgs = [imgs] if imgs is not None else []
+            imgs = [u for u in imgs if _ok_img(u)]
+            q["images"] = imgs
+            q.pop("image", None)
+
+            # clean captions
+            q["message"] = _text(q.get("message"))
+            q["context_caption"] = _text(q.get("context_caption"))
+
+            # keep only meaningful entries
+            if imgs or q["message"] or q["context_caption"]:
+                new_items.append(q)
+
+        if new_items:
+            out[chap] = new_items
+    return out
 
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -1963,9 +2005,6 @@ if "classification" not in st.session_state:
             # keep fallback "This person" if anything goes wrong
             pass
 
-        
-
-
         user_gender = st.session_state.get("fb_gender", "unspecified").lower()
 
         # 🆕 Decide pronouns
@@ -2089,7 +2128,6 @@ if "classification" not in st.session_state:
         ]
         }}
         """,
-                # 👉 this flag is understood by your Function; it nudges the model/tooling to emit JSON
                 "format": "json",
             })
 
@@ -2136,20 +2174,12 @@ if "classification" not in st.session_state:
             timeout=300
         )
 
-
-
-
             classification = classify_res.json()
-            # 🔒 scrub images coming from backend once, up-front
-            for chap, plist in list(classification.items()):
-                if not isinstance(plist, list):
-                    continue
-                for p in plist:
-                    p["images"] = [u for u in (p.get("images") or []) if _is_displayable_image_ref(u)]
-                    if _is_numeric_only(p.get("message")): p["message"] = ""
-                    if _is_numeric_only(p.get("context_caption")): p["context_caption"] = ""
 
-            # --- Validate before storing ---
+            # 🔒 Clean once up-front
+            classification = _scrub_classification(classification)
+
+            # Validate before storing
             if "error" in classification:
                 st.error("GPT classification failed.")
                 if advanced_mode:
@@ -2161,12 +2191,11 @@ if "classification" not in st.session_state:
                 st.warning("No chapters had matching posts.")
                 st.stop()
 
-            # ✅ Store in session_state and rerun to render ONCE in the final section
+            # ✅ Store and rerun
             st.session_state["classification"] = {c: classification[c] for c in chapters if classification.get(c)}
             st.session_state["chapters"] = [c for c in chapters if classification.get(c)]
+            st.rerun()
 
-
-            st.rerun()  # Streamlit ≥1.30
 
 
         # 5️⃣ Render each chapter with images and captions
@@ -2219,6 +2248,42 @@ if "classification" not in st.session_state:
                     idx = (idx + 1) % 3 
 else:
     classification = st.session_state["classification"]
+    # ---- DIAG 1: scan classification for bad image values ----
+    def _bad_img(u):
+        # anything that is not a non-empty string URL/blob-path
+        if not isinstance(u, str):
+            return True
+        s = u.strip()
+        if not s or s.lower() in {"none","null","undefined","download failed"}:
+            return True
+        if s.isdigit():
+            return True
+        # allow http(s) or blob-ish paths with a slash
+        return not (s.startswith("http") or ("/" in s))
+
+    bad = []
+    for chap, plist in classification.items():
+        for pi, post in enumerate(plist):
+            imgs = post.get("images") or []
+            for ii, u in enumerate(imgs):
+                if _bad_img(u):
+                    bad.append({
+                        "chapter": chap,
+                        "post_index": pi,
+                        "img_index": ii,
+                        "value_repr": repr(u),
+                        "value_type": type(u).__name__,
+                    })
+
+    st.sidebar.write(f"🔎 Bad image values: {len(bad)}")
+    if bad:
+        import json
+        st.sidebar.code(json.dumps(bad[:8], indent=2))
+        st.download_button("Download bad-items.json",
+                        data=json.dumps(bad, indent=2),
+                        file_name="bad-items.json",
+                        mime="application/json")
+
     chapters = st.session_state["chapters"]
     st.success("🎉 Scrapbook complete!") 
 
@@ -2226,7 +2291,44 @@ else:
 # ── RENDER SCRAPBOOK IF ALREADY GENERATED ─────────────────────────────
 if "classification" in st.session_state:
     chapters = st.session_state["chapters"]
-    classification = st.session_state["classification"]
+    classification = _scrub_classification(st.session_state["classification"])
+    st.session_state["classification"] = classification  # keep it clean for PDF and Replace/Undo
+    # ---- DIAG 1: scan classification for bad image values ----
+    def _bad_img(u):
+        # anything that is not a non-empty string URL/blob-path
+        if not isinstance(u, str):
+            return True
+        s = u.strip()
+        if not s or s.lower() in {"none","null","undefined","download failed"}:
+            return True
+        if s.isdigit():
+            return True
+        # allow http(s) or blob-ish paths with a slash
+        return not (s.startswith("http") or ("/" in s))
+
+    bad = []
+    for chap, plist in classification.items():
+        for pi, post in enumerate(plist):
+            imgs = post.get("images") or []
+            for ii, u in enumerate(imgs):
+                if _bad_img(u):
+                    bad.append({
+                        "chapter": chap,
+                        "post_index": pi,
+                        "img_index": ii,
+                        "value_repr": repr(u),
+                        "value_type": type(u).__name__,
+                    })
+
+    st.sidebar.write(f"🔎 Bad image values: {len(bad)}")
+    if bad:
+        import json
+        st.sidebar.code(json.dumps(bad[:8], indent=2))
+        st.download_button("Download bad-items.json",
+                        data=json.dumps(bad, indent=2),
+                        file_name="bad-items.json",
+                        mime="application/json")
+
     st.balloons()
     st.markdown("""
     <div class="card" style="text-align:center">
@@ -2265,7 +2367,8 @@ if "classification" in st.session_state:
             template = st.session_state.get("pdf_template", "natural")
             classification = st.session_state["classification"]
             chapters = st.session_state["chapters"]
-
+            classification = _scrub_classification(st.session_state["classification"])
+            chapters = st.session_state["chapters"]
             ck = _scrapbook_ck(classification, chapters, blob_folder, template)
 
             st.session_state["pdf_bytes"] = _build_pdf_cached(
