@@ -24,6 +24,24 @@ st.set_page_config(
     page_icon="📚",
     initial_sidebar_state="collapsed"
 )
+try:
+    p = Path("cache") / "session_cache.json"
+    if p.exists():
+        p.unlink()
+except Exception:
+    pass
+
+def qp_get(name, default=None):
+    try:
+        return st.query_params.get(name)  # >= 1.31
+    except Exception:
+        return st.experimental_get_query_params().get(name, [default])[0]
+
+def qp_set(**kwargs):
+    try:
+        st.query_params.update(kwargs)  # >= 1.31
+    except Exception:
+        st.experimental_set_query_params(**kwargs)
 
 # ---------------------------
 # Utilities / session restore
@@ -33,8 +51,8 @@ def safe_token_hash(token: str) -> str:
 
 def restore_session():
     """
-    Rehydrate fb_token / fb_id / fb_name from the cache directory even if the
-    Streamlit session was reset by a refresh.
+    Restore only from a per-user cache file identified by a URL query param (?cache=<hash>)
+    or from the exact file for the current in-memory token. Never scan all users' files.
     """
     if st.session_state.get("fb_token") and st.session_state.get("fb_id") and st.session_state.get("fb_name"):
         return
@@ -43,44 +61,38 @@ def restore_session():
     if not cache_dir.exists():
         return
 
-    candidates = []
+    # 1) Prefer hash from URL
+    token_hash = qp_get("cache")
+    path = None
+    if token_hash:
+        cand = cache_dir / f"backup_cache_{token_hash}.json"
+        if cand.exists():
+            path = cand
 
-    # 1) simple fallback file (new)
-    fallback = cache_dir / "session_cache.json"
-    if fallback.exists():
-        candidates.append(fallback)
+    # 2) If we already have a token in memory, try its exact file
+    if not path and st.session_state.get("fb_token"):
+        cand = cache_dir / f"backup_cache_{safe_token_hash(st.session_state['fb_token'])}.json"
+        if cand.exists():
+            path = cand
 
-    # 2) if we *do* have a token, try its exact hashed file
-    cur_token = st.session_state.get("fb_token")
-    if cur_token:
-        candidates.append(cache_dir / f"backup_cache_{safe_token_hash(cur_token)}.json")
+    if not path:
+        return
 
-    # 3) any other hashed files, newest first
-    others = sorted(cache_dir.glob("backup_cache_*.json"),
-                    key=lambda p: p.stat().st_mtime, reverse=True)
-    for p in others:
-        if p not in candidates:
-            candidates.append(p)
-
-    for path in candidates:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            token = data.get("fb_token")
-            if not token:
-                continue
-
-            st.session_state["fb_token"] = token
-
-            latest = data.get("latest_backup") or {}
-            st.session_state["fb_id"] = str(latest.get("user_id") or st.session_state.get("fb_id") or "")
-            st.session_state["fb_name"] = latest.get("Name") or st.session_state.get("fb_name")
-            st.session_state["latest_backup"] = latest or st.session_state.get("latest_backup")
-            st.session_state["new_backup_done"] = data.get("new_backup_done")
-            st.session_state["new_project_added"] = data.get("new_project_added")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        token = data.get("fb_token")
+        if not token:
             return
-        except Exception:
-            continue
 
+        st.session_state["fb_token"] = token
+        latest = data.get("latest_backup") or {}
+        st.session_state["fb_id"] = str(latest.get("user_id") or "")
+        st.session_state["fb_name"] = latest.get("Name")
+        st.session_state["latest_backup"] = latest
+        st.session_state["new_backup_done"] = data.get("new_backup_done")
+        st.session_state["new_project_added"] = data.get("new_project_added")
+    except Exception:
+        pass
 
 
 restore_session()
@@ -117,7 +129,7 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
         ).json()
         st.session_state["fb_id"] = str(profile.get("id")).strip()
         st.session_state["fb_name"] = profile.get("name")
-                # NEW: persist token + minimal profile so refresh can restore
+        # NEW: persist token + minimal profile so refresh can restore (per-user file only)
         cache_dir = Path("cache")
         cache_dir.mkdir(exist_ok=True)
         token = st.session_state["fb_token"]
@@ -129,9 +141,9 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
                 "Name": st.session_state.get("fb_name", "")
             }
         }
-        # Keep both a hashed file (old convention) and a simple fallback file
         (cache_dir / f"backup_cache_{token_hash}.json").write_text(json.dumps(payload), encoding="utf-8")
-        (cache_dir / "session_cache.json").write_text(json.dumps(payload), encoding="utf-8")
+        qp_set(cache=token_hash)
+
     except Exception as e:
         st.error(f"Failed to refresh Facebook user info: {e}")
         st.stop()
