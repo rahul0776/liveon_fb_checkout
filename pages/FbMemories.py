@@ -893,6 +893,60 @@ def _scrub_classification(cls: dict) -> dict:
             out[chap] = new_items
     return out
 
+def _post_key(p: dict) -> str:
+    """Stable key for a post (prefer true id; otherwise hash of message+created_time+image keys)."""
+    pid = p.get("id") or p.get("post_id") or p.get("status_id")
+    if pid:
+        return str(pid)
+    msg = str(p.get("message") or "")
+    ct  = str(p.get("created_time") or "")
+    img_keys = ",".join(sorted(_canon_for_dedupe(u) for u in (p.get("images") or []) if _is_displayable_image_ref(u)))
+    import hashlib
+    return hashlib.md5(f"{msg}|{ct}|{img_keys}".encode("utf-8")).hexdigest()
+
+def _dedupe_images_in_post(p: dict) -> dict:
+    """Within a single post, drop duplicate image variants (fbcdn sizes, signed URLs, etc.)."""
+    seen, keep = set(), []
+    for u in (p.get("images") or []):
+        if not _is_displayable_image_ref(u):
+            continue
+        k = _canon_for_dedupe(u)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        keep.append(u)
+    q = dict(p)
+    q["images"] = keep
+    return q
+
+def _dedupe_classification_global(cls: dict, chapter_order: list[str]) -> dict:
+    """
+    Enforce uniqueness across the WHOLE scrapbook.
+    - A post appears in at most one chapter.
+    - Any photo appears at most once globally (even if different posts reference it).
+    """
+    seen_posts, seen_imgs = set(), set()
+    out = {}
+    for chap in chapter_order:
+        filtered = []
+        for p in cls.get(chap, []) or []:
+            q = _dedupe_images_in_post(p)
+            pk = _post_key(q)
+            img_keys = [ _canon_for_dedupe(u) for u in q.get("images") or [] if _is_displayable_image_ref(u) ]
+
+            # If we've already used this post OR any of its images, skip it here
+            if pk in seen_posts or any(k in seen_imgs for k in img_keys):
+                continue
+
+            seen_posts.add(pk)
+            for k in img_keys:
+                seen_imgs.add(k)
+            filtered.append(q)
+
+        if filtered:
+            out[chap] = filtered
+    return out
+
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
         t = t.strip()
@@ -2240,6 +2294,7 @@ if "classification" not in st.session_state:
 
             # 🔒 Clean once up-front
             classification = _scrub_classification(classification)
+            classification = _dedupe_classification_global(classification, chapters)
 
             # Validate before storing
             if "error" in classification:
@@ -2304,7 +2359,8 @@ else:
 if "classification" in st.session_state:
     chapters = st.session_state["chapters"]
     classification = _scrub_classification(st.session_state["classification"])
-    st.session_state["classification"] = classification  # keep it clean for PDF and Replace/Undo
+    classification = _dedupe_classification_global(classification, st.session_state["chapters"])
+    st.session_state["classification"] = classification
     # ---- DIAG 1: scan classification for bad image values ----
     def _bad_img(u):
         # anything that is not a non-empty string URL/blob-path
