@@ -32,9 +32,29 @@ except Exception:
 # ---- Debug guard to catch & suppress accidental "None" renders ----
 import functools, inspect
 
-def _is_none_like(x):
+def _is_junk_label(x):
+    """
+    Treat None, 'none/null/undefined', empty strings, and *numeric zeros* as junk.
+    This prevents lone '0' from ever rendering as a caption/markdown line.
+    """
     try:
-        return (x is None) or (str(x).strip().lower() == "none")
+        if x is None:
+            return True
+        if isinstance(x, (int, float)):
+            return float(x) == 0.0
+        s = str(x).strip()
+        if not s:
+            return True
+        s_low = s.lower()
+        if s_low in {"none", "null", "undefined"}:
+            return True
+        # '0', '00', '0.0' etc…
+        if s.replace(".", "", 1).isdigit():
+            try:
+                return float(s) == 0.0
+            except Exception:
+                return False
+        return False
     except Exception:
         return False
 
@@ -42,16 +62,17 @@ def _guard(fn_name):
     orig = getattr(st, fn_name)
     @functools.wraps(orig)
     def wrapped(*args, **kwargs):
-        if args and _is_none_like(args[0]):
+        if args and _is_junk_label(args[0]):
             fr = inspect.stack()[1]
             where = f"{fr.filename.split('/')[-1]}:{fr.lineno}"
-            st.sidebar.warning(f"Suppressed None passed to st.{fn_name} at {where}")
-            return  # swallow the None so nothing ugly shows in the UI
+            st.sidebar.warning(f"Suppressed junk value passed to st.{fn_name} at {where}")
+            return
         return orig(*args, **kwargs)
     return wrapped
 
 for _fn in ("write", "text", "caption", "markdown", "code"):
     setattr(st, _fn, _guard(_fn))
+
 # -------------------------------------------------------------------
 
 
@@ -980,6 +1001,13 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
 
                 try:
                     cap = _safe_caption(caption)
+                    # --- final guard (prevents lone '0' from ever showing) ---
+                    if isinstance(cap, (int, float)):
+                        cap = None
+                    elif isinstance(cap, str):
+                        s = cap.strip()
+                        if (s.replace(".", "", 1).isdigit() and float(s or 0) == 0.0):
+                            cap = None
                     st.image(display_url, caption=cap, use_container_width=True)
 
                 except Exception:
@@ -2234,6 +2262,12 @@ if "classification" not in st.session_state:
                             #st.image(signed_url, caption=_cap(caption), use_container_width=True)
                             _cap_text = _cap(caption)
                             cap = _safe_caption(caption)
+                            if isinstance(cap, (int, float)):
+                                cap = None
+                            elif isinstance(cap, str):
+                                s = cap.strip()
+                                if (s.replace(".", "", 1).isdigit() and float(s or 0) == 0.0):
+                                    cap = None
                             st.image(signed_url, caption=cap, use_container_width=True)
 
                         idx = (idx + 1) % 3
@@ -2320,7 +2354,6 @@ if "classification" in st.session_state:
                         "value_type": type(u).__name__,
                     })
 
-    st.sidebar.write(f"🔎 Bad image values: {len(bad)}")
     if bad:
         import json
         st.sidebar.code(json.dumps(bad[:8], indent=2))
