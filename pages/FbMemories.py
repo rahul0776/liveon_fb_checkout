@@ -352,6 +352,43 @@ def _text(s) -> str:
         return ""
     return s
 
+def _is_numeric_only(x) -> bool:
+    """True for 0, '0', ' 23 ', etc."""
+    if x is None:
+        return False
+    if isinstance(x, (int, float)):
+        return True
+    s = str(x).strip()
+    return s.isdigit()
+
+def _safe_caption(c) -> str | None:
+    """
+    Normalize caption for st.image:
+    - drop None / '', 'none', 'null', 'undefined'
+    - drop numeric-only (0, '0', '12' etc.)
+    - return a clean string otherwise (or None to suppress caption entirely)
+    """
+    if c is None:
+        return None
+    s = str(c).strip()
+    if not s or s.lower() in {"none", "null", "undefined"}:
+        return None
+    if _is_numeric_only(s):
+        return None
+    return s
+
+def _clean_images_list(values):
+    """Remove empty / numeric-only entries from a post's images list."""
+    out = []
+    for v in (values or []):
+        if v is None:
+            continue
+        s = str(v).strip()
+        if not s or _is_numeric_only(s):
+            continue
+        out.append(v)
+    return out
+
 def compose_caption(message, context):
     m = _text(message)
     # extra guard in case something slips through
@@ -365,25 +402,6 @@ def compose_caption(message, context):
 def _craft_caption_via_function(message: str, context: str) -> str:
     # Pure local: stay compatible with older Function App (no /craft_caption route)
     return compose_caption(message, context)
-
-
-#def _craft_caption_via_function(message: str, context: str) -> str:
- #   try:
-  #      msg = _text(message)
-   #     ctx = _text(context)
-    #    if not msg and not ctx:
-     #       return "📷"
-      #  key = st.secrets.get("CRAFT_CAPTION_KEY") or os.environ.get("CRAFT_CAPTION_KEY", "")
-       # url = f"{FUNCTION_BASE}/craft_caption" + (f"?code={key}" if key else "")
-        #r = requests.post(url, json={"message": msg, "context": ctx}, timeout=12)
-        #r.raise_for_status()
-        #data = r.json() if r.headers.get("content-type","").startswith("application/json") else {}
-        #cap = _text((data or {}).get("caption"))
-        #return cap or (f"{msg} — 🧠 {ctx}" if msg and ctx else msg or (f"🧠 {ctx}" if ctx else "📷"))
-    #except Exception:
-        # graceful fallback to your current style
-     #   return (f"{_text(message)} — 🧠 {_text(context)}" if _text(message) and _text(context)
-      #          else _text(message) or (f"🧠 {_text(context)}" if _text(context) else "📷"))"""
 
 # keep a session-scoped set of used captions to avoid dupes
 def _unique_caption(raw: str, tries=2) -> str:
@@ -863,11 +881,8 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
             if kind == "image":
                 try:
                     #st.image(img_url, caption=_cap(caption), use_container_width=True)
-                    _cap_text = _cap(caption)
-                    if _cap_text:
-                        st.image(img_url, caption=_cap_text, use_container_width=True)
-                    else:
-                        st.image(img_url, use_container_width=True)
+                    cap = _safe_caption(caption)
+                    st.image(img_url, caption=cap, use_container_width=True)
 
                 except:
                     _cap_text = _cap(caption)[:80]
@@ -924,11 +939,8 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
                 seen_urls.add(key)
 
                 try:
-                    _cap_text = _cap(caption)
-                    if _cap_text:
-                        st.image(display_url, caption=_cap_text, use_container_width=True)
-                    else:
-                        st.image(display_url, use_container_width=True)
+                    cap = _safe_caption(caption)
+                    st.image(display_url, caption=cap, use_container_width=True)
 
                 except Exception:
                     _cap_text = _cap(caption)[:80]
@@ -1662,7 +1674,7 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
                         c.drawImage(img, x-w/2, y-h/2, width=w, height=h, mask='auto')
                 except:
                     pass
-                cap = _cap(it.get("caption",""))[:90]
+                cap = (_safe_caption(it.get("caption","")) or "")[:90]
                 if cap:
                     c.setFillColorRGB(0.20,0.20,0.20)
                     c.setFont(_register_scrapbook_fonts()[2], 10)
@@ -1827,6 +1839,13 @@ try:
     # Clean, true count (after dedupe), no folder/chapters noise
     st.success(f"✅ Loaded {len(posts)} unique posts")
     st.session_state["all_posts_raw"] = posts
+    for p in posts:
+        if _is_numeric_only(p.get("message")):
+            p["message"] = ""
+        if _is_numeric_only(p.get("context_caption")):
+            p["context_caption"] = ""
+        if "images" in p:
+            p["images"] = _clean_images_list(p.get("images"))
 
 
     # --- Minimal 3-image hero (now uses promo images) ---
@@ -2159,16 +2178,6 @@ if "classification" not in st.session_state:
             idx = 0
             seen: set[tuple[str, str]] = set()
             for post_idx, p in enumerate(chapter_posts):
-                #message = (p.get("message") or "").strip()
-                #context = (p.get("context_caption") or "").strip()
-                #if message and context:
-                 #   caption = f"{message} — 🧠 {context}"
-                #elif message:
-                 #   caption = message
-                #elif context:
-                 #   caption = f"🧠 {context}"
-                #else:
-                 #   caption = "📷"
                 caption = compose_caption(p.get("message"), p.get("context_caption"))
                 images = p.get("images", [])
                 if not images and "image" in p:
@@ -2189,18 +2198,11 @@ if "classification" not in st.session_state:
                         with cols[idx]:
                             #st.image(signed_url, caption=_cap(caption), use_container_width=True)
                             _cap_text = _cap(caption)
-                            if _cap_text:
-                                st.image(signed_url, caption=_cap_text, use_container_width=True)
-                            else:
-                                st.image(signed_url, use_container_width=True)
-
-
-                            
-        
+                            cap = _safe_caption(caption)
+                            st.image(signed_url, caption=cap, use_container_width=True)
 
                         idx = (idx + 1) % 3
-                        
-
+                    
                 else:
                     key = (caption, "")
                     if key in seen:
