@@ -790,17 +790,16 @@ def parse_chapters_strict(raw: str) -> list[str]:
 # ── HELPERS ────────────────────────────────────────────────
 def _is_displayable_image_ref(u) -> bool:
     """Accept http(s) URLs or blob-like paths. Reject empties, 'none', 'download failed', and bare digits like '0'."""
-    if not u:
+    if not isinstance(u, str):
         return False
-    s = str(u).strip()
+    s = u.strip()
     if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
         return False
-    if s.isdigit():                # <-- keep killing "0", "1", ...
+    if s.isdigit():                       # kills "0", "1", etc.
         return False
-    # NEW: never show theme/demo assets in chapter grids / PDFs
-    if s.lower().startswith("app-assets/"):   # <-- ADD THIS LINE
+    if s.lower().startswith("app-assets/"):
         return False
-    return s.startswith("http") or ("/" in s)  # allow Azure blob paths
+    return s.startswith("http") or ("/" in s)
 
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -2142,7 +2141,17 @@ if "classification" not in st.session_state:
 
 
             classification = classify_res.json()
-
+            # 🔒 scrub images coming from backend once, up-front
+            for chap, plist in list(classification.items()):
+                if not isinstance(plist, list):
+                    continue
+                for p in plist:
+                    imgs = p.get("images") or []
+                    # keep only strings that look displayable
+                    p["images"] = [u for u in imgs if _is_displayable_image_ref(u)]
+                    # also guard caption-ish fields
+                    if _is_numeric_only(p.get("message")): p["message"] = ""
+                    if _is_numeric_only(p.get("context_caption")): p["context_caption"] = ""
             # --- Validate before storing ---
             if "error" in classification:
                 st.error("GPT classification failed.")
