@@ -789,13 +789,12 @@ def parse_chapters_strict(raw: str) -> list[str]:
     return out[:12]
 # ── HELPERS ────────────────────────────────────────────────
 def _is_displayable_image_ref(u) -> bool:
-    """Accept http(s) URLs or blob-like paths. Reject empties, 'none', 'download failed', and bare digits like '0'."""
     if not isinstance(u, str):
         return False
     s = u.strip()
-    if not s or s.lower() in {"none", "null", "undefined", "download failed"}:
+    if not s or s.lower() in {"none","null","undefined","download failed"}:
         return False
-    if s.isdigit():                       # kills "0", "1", etc.
+    if s.isdigit():
         return False
     if s.lower().startswith("app-assets/"):
         return False
@@ -2146,12 +2145,10 @@ if "classification" not in st.session_state:
                 if not isinstance(plist, list):
                     continue
                 for p in plist:
-                    imgs = p.get("images") or []
-                    # keep only strings that look displayable
-                    p["images"] = [u for u in imgs if _is_displayable_image_ref(u)]
-                    # also guard caption-ish fields
+                    p["images"] = [u for u in (p.get("images") or []) if _is_displayable_image_ref(u)]
                     if _is_numeric_only(p.get("message")): p["message"] = ""
                     if _is_numeric_only(p.get("context_caption")): p["context_caption"] = ""
+
             # --- Validate before storing ---
             if "error" in classification:
                 st.error("GPT classification failed.")
