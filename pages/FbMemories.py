@@ -343,6 +343,28 @@ def normalize_url(url: str) -> str:
     parsed = urlparse(url)
     clean = parsed._replace(query="", fragment="")
     return urlunparse(clean)
+# Canonical key for duplicate detection (handles fbcdn size buckets & Azure)
+def _canon_for_dedupe(u: str) -> str:
+    s = str(u or "").strip()
+    if not s:
+        return ""
+    # If it's our Azure HTTPS, reduce to the blob path (stable across SAS)
+    blob_path = _to_blob_path_if_ours_https(s)
+    if blob_path:
+        s = blob_path
+    # Drop query/fragment
+    from urllib.parse import urlparse, urlunparse
+    pu = urlparse(s)
+    path = pu.path
+    # Collapse common fbcdn path variants like /p640x640/, /s720x720/, /v1234/
+    import re
+    path = re.sub(r"/p\d+x\d+/", "/", path)
+    path = re.sub(r"/s\d+x\d+/", "/", path)
+    path = re.sub(r"/[sv]\d+/", "/", path)
+    # Normalize double slashes
+    path = re.sub(r"/{2,}", "/", path)
+    canon = urlunparse(pu._replace(path=path, query="", fragment=""))
+    return canon.lower()
 
 def _cap(s) -> str:
     """Return a safe caption string; strip any 'None' artifacts and zero-width junk."""
@@ -927,10 +949,11 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
 
 
             # use a normalized key ONLY for dedupe
-            key_url = normalize_url(display_url)
+            key_url = _canon_for_dedupe(img)  # use the *original* img url, not the signed one
             if key_url in seen_urls:
                 continue
             seen_urls.add(key_url)
+
             all_items.append(("image", display_url, caption))
 
 
@@ -993,11 +1016,11 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
         for img_idx, img_url in enumerate(images):
             with cols[post_idx % len(cols)]:   # ✅ safe modulo (fixes IndexError)
                 display_url = to_display_url(img_url)
-
-                key = normalize_url(display_url)
+                key = _canon_for_dedupe(img_url)
                 if key in seen_urls:
                     continue
                 seen_urls.add(key)
+
 
                 try:
                     cap = _safe_caption(caption)
@@ -1789,7 +1812,7 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
 
     # ---------- Chapter pages (3 images per page, full A4) ----------
     def _flatten(chap):
-        items = []
+        items, seen = [], set()
         for p in classification.get(chap, []):
             imgs = p.get("images", []) or ([p.get("image")] if "image" in p else [])
             imgs = [u for u in imgs if _is_displayable_image_ref(u)]
@@ -1798,9 +1821,12 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
             crafted = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
             date_s  = _nice_date(p.get("created_time"))
             for u in imgs:
+                k = _canon_for_dedupe(u)
+                if k in seen: 
+                    continue
+                seen.add(k)
                 cap = f"{date_s} — {crafted}" if date_s else crafted
                 items.append({"img": u, "caption": cap})
-
         return items
 
     page_no = 1
@@ -2321,7 +2347,6 @@ else:
     chapters = st.session_state["chapters"]
     st.success("🎉 Scrapbook complete!") 
 
-# ── RENDER SCRAPBOOK IF ALREADY GENERATED ─────────────────────────────
 # ── RENDER SCRAPBOOK IF ALREADY GENERATED ─────────────────────────────
 if "classification" in st.session_state:
     chapters = st.session_state["chapters"]
