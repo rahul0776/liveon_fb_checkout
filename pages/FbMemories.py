@@ -345,26 +345,34 @@ def normalize_url(url: str) -> str:
     return urlunparse(clean)
 # Canonical key for duplicate detection (handles fbcdn size buckets & Azure)
 def _canon_for_dedupe(u: str) -> str:
-    s = str(u or "").strip()
+    s = (u or "").strip()
     if not s:
         return ""
-    # If it's our Azure HTTPS, reduce to the blob path (stable across SAS)
+    # Map our Azure HTTPS back to a stable blob path
     blob_path = _to_blob_path_if_ours_https(s)
     if blob_path:
         s = blob_path
-    # Drop query/fragment
+
     from urllib.parse import urlparse, urlunparse
     pu = urlparse(s)
     path = pu.path
-    # Collapse common fbcdn path variants like /p640x640/, /s720x720/, /v1234/
+
     import re
-    path = re.sub(r"/p\d+x\d+/", "/", path)
-    path = re.sub(r"/s\d+x\d+/", "/", path)
-    path = re.sub(r"/[sv]\d+/", "/", path)
-    # Normalize double slashes
+    # Collapse fbcdn “size bucket” and crop segments
+    path = re.sub(r"/(?:p|s)\d+x\d+/", "/", path)       # /p640x640/, /s720x720/
+    path = re.sub(r"/c\d+\.\d+\.\d+\.\d+/", "/", path)  # /c0.0.720.720/
+    path = re.sub(r"/(?:a|v)\d+/", "/", path)           # /a123/, /v123/
+
+    # Normalize filename variant: *_n.jpg, *_o.jpg, *_b.jpg → .jpg
+    path = re.sub(r"(_[a-z])\.(jpe?g|png|webp)$", r".\2", path, flags=re.I)
+
+    # Normalize slashes & lowercase extension
     path = re.sub(r"/{2,}", "/", path)
-    canon = urlunparse(pu._replace(path=path, query="", fragment=""))
-    return canon.lower()
+    path = re.sub(r"\.(JPG|JPEG|PNG|WEBP)$", lambda m: "." + m.group(1).lower(), path)
+
+    # Return just a stable, lowercase key (no query/fragment/host)
+    return urlunparse(pu._replace(path=path, query="", fragment="", netloc="", scheme="")).lower()
+
 
 def _cap(s) -> str:
     """Return a safe caption string; strip any 'None' artifacts and zero-width junk."""
@@ -2251,61 +2259,6 @@ if "classification" not in st.session_state:
             st.rerun()
 
 
-
-        # 5️⃣ Render each chapter with images and captions
-        for chap in chapters:
-            st.markdown(f"<div class='chapter-title'>📚 {chap}</div>", unsafe_allow_html=True)
-            chapter_posts = classification.get(chap, [])
-            if show_empty_chapters and not chapter_posts:
-                continue
-            
-            #chapter_posts = classification.get(chap, [])
-            if not chapter_posts:
-                st.info("No posts matched this chapter.")
-                continue
-            cols = st.columns(3)
-            idx = 0
-            seen: set[tuple[str, str]] = set()
-            for post_idx, p in enumerate(chapter_posts):
-                caption = compose_caption(p.get("message"), p.get("context_caption"))
-                images = p.get("images", [])
-                if not images and "image" in p:
-                    images = [p["image"]]
-                # ✅ sanitize
-                images = [u for u in images if _is_displayable_image_ref(u)]
-
-                if images:
-                    for img_idx, img_url in enumerate(images):
-
-                        signed_url = img_url if str(img_url).startswith("http") else sign_blob_url(str(img_url))
- # It’s already a good URL from posts+cap.json
-
-                        key = (caption, normalize_url(signed_url))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        with cols[idx]:
-                            #st.image(signed_url, caption=_cap(caption), use_container_width=True)
-                            _cap_text = _cap(caption)
-                            cap = _safe_caption(caption)
-                            if isinstance(cap, (int, float)):
-                                cap = None
-                            elif isinstance(cap, str):
-                                s = cap.strip()
-                                if (s.replace(".", "", 1).isdigit() and float(s or 0) == 0.0):
-                                    cap = None
-                            st.image(signed_url, caption=cap, use_container_width=True)
-
-                        idx = (idx + 1) % 3
-                    
-                else:
-                    key = (caption, "")
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    with cols[idx]:
-                        st.markdown(f"💬 *{caption}*")
-                    idx = (idx + 1) % 3 
 else:
     classification = st.session_state["classification"]
     # ---- DIAG 1: scan classification for bad image values ----
