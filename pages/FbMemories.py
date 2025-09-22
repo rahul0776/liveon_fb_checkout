@@ -910,7 +910,7 @@ def _dedupe_images_in_post(p: dict) -> dict:
     for u in (p.get("images") or []):
         if not _is_displayable_image_ref(u):
             continue
-        k = _canon_for_dedupe(u)
+        k = _image_key(u)
         if not k or k in seen:
             continue
         seen.add(k)
@@ -932,7 +932,8 @@ def _dedupe_classification_global(cls: dict, chapter_order: list[str]) -> dict:
         for p in cls.get(chap, []) or []:
             q = _dedupe_images_in_post(p)
             pk = _post_key(q)
-            img_keys = [ _canon_for_dedupe(u) for u in q.get("images") or [] if _is_displayable_image_ref(u) ]
+            img_keys = [_image_key(u) for u in q.get("images") or [] if _is_displayable_image_ref(u)]
+
 
             # If we've already used this post OR any of its images, skip it here
             if pk in seen_posts or any(k in seen_imgs for k in img_keys):
@@ -946,6 +947,46 @@ def _dedupe_classification_global(cls: dict, chapter_order: list[str]) -> dict:
         if filtered:
             out[chap] = filtered
     return out
+# ---- Stronger de-dupe: prefer content fingerprint for our Azure blobs ----
+def _blob_fingerprint(blob_path: str) -> str | None:
+    """Return a stable 'md5:<hex>' or 'etag:<value>' for a blob path; cache per session."""
+    cache = st.session_state.setdefault("_blob_fp_cache", {})
+    if blob_path in cache:
+        return cache[blob_path]
+    try:
+        bc = container_client.get_blob_client(blob_path)
+        if not bc.exists():
+            return None
+        props = bc.get_blob_properties()
+        # azure-storage-blob exposes MD5 either at props.content_settings.content_md5 (bytes) or props.content_md5
+        md5 = getattr(getattr(props, "content_settings", None), "content_md5", None) or getattr(props, "content_md5", None)
+        if md5:
+            fp = "md5:" + (md5.hex() if isinstance(md5, (bytes, bytearray)) else str(md5))
+        else:
+            etag = getattr(props, "etag", None)
+            fp = "etag:" + str(etag).strip('"') if etag else None
+        if fp:
+            cache[blob_path] = fp
+        return fp
+    except Exception:
+        return None
+
+def _image_key(u: str) -> str:
+    """
+    Stable key for dedupe:
+    1) If it's our Azure blob (URL or raw path), use content fingerprint (md5/etag).
+    2) Otherwise, fall back to path-based canonicalization.
+    """
+    s = (u or "").strip()
+    if not s:
+        return ""
+    # Map our https → blob path, or accept raw blob path; ignore app-assets
+    blob_path = _to_blob_path_if_ours_https(s) or (s if ("/" in s and not s.startswith("http")) else None)
+    if blob_path and not blob_path.lower().startswith("app-assets/"):
+        fp = _blob_fingerprint(blob_path)
+        if fp:
+            return fp
+    return "path:" + _canon_for_dedupe(s)
 
 def extract_titles(ai_text:str) -> list[str]:
     def _clean(t:str) -> str:
@@ -1011,10 +1052,12 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
 
 
             # use a normalized key ONLY for dedupe
-            key_url = _canon_for_dedupe(img)  # use the *original* img url, not the signed one
-            if key_url in seen_urls:
+            # use a content fingerprint (md5/etag) when available
+            key = _image_key(img)
+            if key in seen_urls:
                 continue
-            seen_urls.add(key_url)
+            seen_urls.add(key)
+
 
             all_items.append(("image", display_url, caption))
 
@@ -1053,8 +1096,6 @@ def calculate_max_per_chapter(chapters, posts):
 
 def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTION_BASE):
     import json, requests
-    import streamlit as st
-
     st.markdown("<div class='card'><div class='grid-3'>", unsafe_allow_html=True)
 
     # always 3 columns (we’re ignoring minimal UI now)
@@ -1078,7 +1119,7 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
         for img_idx, img_url in enumerate(images):
             with cols[post_idx % len(cols)]:   # ✅ safe modulo (fixes IndexError)
                 display_url = to_display_url(img_url)
-                key = _canon_for_dedupe(img_url)
+                key = _image_key(img_url)
                 if key in seen_urls:
                     continue
                 seen_urls.add(key)
@@ -1206,6 +1247,18 @@ def _nice_date(iso: str | None) -> str:
 def _flatten_chapter_items(classification: dict, chap: str) -> list[dict]:
     """One image == one item; keeps captions & dates consistent."""
     items = []
+    def _coverage(posts_all, classification):
+        all_keys, used = set(), set()
+        for p in posts_all:
+            for u in (p.get("images") or p.get("normalized_images") or []):
+                if _is_displayable_image_ref(u):
+                    all_keys.add(_image_key(u))
+        for plist in classification.values():
+            for p in plist:
+                for u in p.get("images", []):
+                    if _is_displayable_image_ref(u):
+                        used.add(_image_key(u))
+        return len(used), max(1, len(all_keys))
     for p in classification.get(chap, []):
         imgs = p.get("images", []) or ([p.get("image")] if "image" in p else [])
         # ✅ SANITIZE
@@ -1883,7 +1936,7 @@ def build_pdf_bytes(classification, chapters, blob_folder, show_empty_chapters, 
             crafted = _unique_caption(_craft_caption_via_function(p.get("message"), p.get("context_caption")))
             date_s  = _nice_date(p.get("created_time"))
             for u in imgs:
-                k = _canon_for_dedupe(u)
+                k = _image_key(u)
                 if k in seen: 
                     continue
                 seen.add(k)
@@ -1935,10 +1988,12 @@ def _scrapbook_ck(
     Stable content key for caching, based on the *actual* scrapbook content.
     """
     def _norm(u):
+        # use the same key we dedupe on, so blob variants don’t change the cache key
         try:
-            return normalize_url(str(u))
+            return _image_key(str(u))
         except Exception:
             return str(u) if u is not None else ""
+
     sig = []
     for chap in chapters or []:
         for p in (classification or {}).get(chap, []):
@@ -2405,17 +2460,16 @@ if "classification" in st.session_state:
     """, unsafe_allow_html=True)
         # Coverage meter (unique images used / available)
     def _coverage(posts_all, classification):
-        all_keys = set()
+        all_keys, used = set(), set()
         for p in posts_all:
             for u in (p.get("images") or p.get("normalized_images") or []):
                 if _is_displayable_image_ref(u):
-                    all_keys.add(normalize_url(str(u)))
-        used = set()
+                    all_keys.add(_image_key(u))
         for plist in classification.values():
             for p in plist:
                 for u in p.get("images", []):
                     if _is_displayable_image_ref(u):
-                        used.add(normalize_url(str(u)))
+                        used.add(_image_key(u))
         return len(used), max(1, len(all_keys))
 
     used_ct, total_ct = _coverage(st.session_state.get("all_posts_raw", []), classification)
