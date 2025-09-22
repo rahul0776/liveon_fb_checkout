@@ -22,7 +22,7 @@ from uuid import uuid4
 from pathlib import Path
 from textwrap import wrap
 
-
+st.session_state.pop("_blob_fp_cache", None)
 try:
     from PIL import Image as PILImage
     _HAVE_PIL = True
