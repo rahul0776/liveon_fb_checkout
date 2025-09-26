@@ -43,9 +43,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+try:
+    qp = st.query_params
+    ping = qp.get("ping")
+    ping = ping[0] if isinstance(ping, list) else ping
+    if ping == "1":
+        st.write("ok")
+        st.stop()
+except Exception:
+    pass
 # ── Settings ────────────────────────────────────────────────
 TIMEOUT = 10
-DEST_PAGE = "pages/Projects.py"  # keep consistent across the app
+DEST_PAGE = "pages/Projects.py"  
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 
 def dev(msg):
@@ -56,7 +65,7 @@ def dev(msg):
 try:
     CLIENT_ID = st.secrets["FB_CLIENT_ID"]
     CLIENT_SECRET = st.secrets["FB_CLIENT_SECRET"]
-    REDIRECT_URI = st.secrets["FB_REDIRECT_URI"]  # must EXACTLY match in Facebook App settings
+    REDIRECT_URI = st.secrets["FB_REDIRECT_URI"]  
 except KeyError as e:
     st.error(f"Missing secret: {e}. Add it in Streamlit → Settings → Secrets.")
     st.stop()
@@ -70,7 +79,7 @@ def build_auth_url() -> str:
         "redirect_uri": REDIRECT_URI,
         "scope": SCOPES,
         "response_type": "code",
-        "state": make_state(),          # ← stateless signed state
+        "state": make_state(),         
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
 
