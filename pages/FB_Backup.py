@@ -6,7 +6,9 @@ from pathlib import Path
 import streamlit as st
 import stripe
 from urllib.parse import urlencode
-
+import hashlib
+from azure.storage.blob import BlobServiceClient
+from datetime import datetime, timezone
 # ----------------- MUST BE FIRST -----------------
 st.set_page_config(
     page_title="LiveOn · Facebook Backup",
@@ -64,6 +66,42 @@ BILLING_READY = bool(STRIPE_SECRET_KEY)
 if BILLING_READY:
     stripe.api_key = STRIPE_SECRET_KEY  # type: ignore[arg-type]
 
+# ---- Azure Blob (to store entitlements) ----
+AZURE_CONN = _get_secret("AZURE_CONNECTION_STRING")
+if not AZURE_CONN:
+    st.error("Missing AZURE_CONNECTION_STRING in Secrets.")
+    st.stop()
+
+_blob = BlobServiceClient.from_connection_string(AZURE_CONN)
+_container = _blob.get_container_client("backup")
+
+def _backup_prefix_from_blob_path(blob_path: str) -> str:
+    """
+    '12345/John_20250101_120000/posts+cap.json' -> '12345/John_20250101_120000'
+    '12345/John_20250101_120000/some.zip'       -> '12345/John_20250101_120000'
+    """
+    return str(blob_path).rsplit("/", 1)[0].strip("/")
+
+def _write_entitlements(prefix: str, session: dict) -> None:
+    """
+    Write (or update) entitlements.json in the given backup prefix and
+    drop a tiny marker file '.paid.memories' as a fallback.
+    """
+    ent = {
+        "memories": True,
+        "download": True,
+        "paid": True,
+        "paid_at": datetime.now(timezone.utc).isoformat(),
+        "checkout_id": session.get("id"),
+        "amount": (session.get("amount_total") or 0) / 100.0,
+        "currency": session.get("currency"),
+        "fb_id": (session.get("metadata") or {}).get("fb_id"),
+        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+    }
+    bc = _container.get_blob_client(f"{prefix}/entitlements.json")
+    bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
+    _container.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
+
 # --- NEW: accept prod_ or price_ and resolve to a Price ID
 def _resolve_price_id(price_or_prod: str | None) -> str | None:
     """Return a Price ID for either a Price or Product input; None if not resolvable."""
@@ -96,12 +134,59 @@ pending = st.session_state.get("pending_download")  # set in Projects.py
 display_name = (pending or {}).get("file_name") or "backup.zip"
 if not display_name.lower().endswith(".zip"):
     display_name = display_name.rsplit(".", 1)[0] + ".zip"
+
+# compute per-user cache hash so Projects.py can restore the session by ?cache=
+token = st.session_state.get("fb_token", "")
+token_hash = hashlib.md5(token.encode()).hexdigest() if token else ""
+
 success_url_for_item = SUCCESS_URL
 if pending and isinstance(pending, dict) and pending.get("blob_path"):
+    base_params = {
+        "blob": pending["blob_path"],
+        "name": display_name,
+    }
+    if token_hash:
+        base_params["cache"] = token_hash
     sep0 = '&' if '?' in SUCCESS_URL else '?'
-    # pass the forced .zip name to success.py
-    success_url_for_item = f"{SUCCESS_URL}{sep0}{urlencode({'blob': pending['blob_path'], 'name': display_name})}"
+    success_url_for_item = f"{SUCCESS_URL}{sep0}{urlencode(base_params)}"
     st.caption(f"After payment, your download of **{display_name}** will start automatically.")
+
+# ---- Success return handler (runs when Stripe redirects back with ?session_id=...) ----
+try:
+    qp = st.query_params
+    session_id = qp.get("session_id")
+    if isinstance(session_id, list):
+        session_id = session_id[0]
+
+    if BILLING_READY and session_id:
+        sess = stripe.checkout.Session.retrieve(session_id)
+        if (sess.get("payment_status") or "").lower() == "paid":
+            md = sess.get("metadata") or {}
+            blob_path = md.get("blob") or qp.get("blob") or ""
+            backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+
+            if not backup_prefix:
+                st.error("Paid, but couldn’t resolve the backup prefix. Contact support.")
+            else:
+                _write_entitlements(backup_prefix, sess)
+                st.success("✅ Payment confirmed — Memories unlocked for this backup!")
+
+                # remember which backup to open if the user clicks Memories later
+                st.session_state["selected_backup"] = backup_prefix
+
+                # keep the cache token alive as we go back to Projects
+                cache = qp.get("cache")
+                if isinstance(cache, list):
+                    cache = cache[0]
+
+                # Prefer a link (ensures ?cache=… is preserved). If switch_page works in your env, it’s fine too.
+                proj_url = f"/Projects?cache={cache or ''}"
+                st.link_button("📘 Open Projects", proj_url)
+                st.stop()
+        else:
+            st.info("We returned from checkout but the payment isn’t marked as paid yet.")
+except Exception as e:
+    st.warning(f"Post-payment handler error: {e}")
 
 # ----------------- Page CSS (Minedco look) -----------------
 st.markdown("""
@@ -149,7 +234,8 @@ if st.button("💳 Buy Now for $9.99", disabled=(not BILLING_READY or price_is_p
                 "fb_id": st.session_state.get("fb_id", ""),
                 "fb_name": st.session_state.get("fb_name", ""),
                 "blob": (pending or {}).get("blob_path", ""),
-                "name": (pending or {}).get("file_name", "")
+                "name": (pending or {}).get("file_name", ""),
+                "backup_prefix": _backup_prefix_from_blob_path((pending or {}).get("blob_path", "")),  # 👈 add this
             },
             customer_email=st.session_state.get("fb_email")
         )

@@ -452,6 +452,54 @@ def delete_backup_prefix(prefix: str):
     except Exception as e:
         st.error(f"Delete failed: {e}")
 
+# ---------- Payment / entitlement helpers ----------
+def _memories_is_paid(prefix: str) -> bool:
+    """
+    Returns True if this backup prefix is paid for Memories.
+    Looks for:
+      - entitlements.json  (preferred)
+      - project_meta.json  (legacy)
+      - tiny marker files: .paid.memories / .paid / paid.flag  (fallback)
+    """
+    try:
+        # Preferred: entitlements.json
+        bc = container_client.get_blob_client(f"{prefix}/entitlements.json")
+        if bc.exists():
+            try:
+                ent = json.loads(bc.download_blob().readall().decode("utf-8"))
+            except Exception:
+                ent = {}
+            if bool(
+                ent.get("memories") or
+                ent.get("download") or
+                ent.get("is_paid") or
+                ent.get("paid")
+            ):
+                return True
+
+        # Legacy JSON
+        for name in ("project_meta.json", "project_meta.json.json"):
+            bc = container_client.get_blob_client(f"{prefix}/{name}")
+            if bc.exists():
+                try:
+                    meta = json.loads(bc.download_blob().readall().decode("utf-8"))
+                except Exception:
+                    meta = {}
+                if bool(
+                    meta.get("is_paid") or
+                    meta.get("paid") or
+                    (meta.get("entitlements", {}) or {}).get("memories")
+                ):
+                    return True
+
+        # Fallback marker files (zero-byte files are fine)
+        for name in (".paid.memories", ".paid", "paid.flag"):
+            if container_client.get_blob_client(f"{prefix}/{name}").exists():
+                return True
+    except Exception:
+        pass
+    return False
+
 # -----------------------
 # Load existing backups (show only the most recent) + enforce single
 # -----------------------
@@ -745,10 +793,14 @@ if backups:
 
 
 
-            if SHOW_MEMORIES_BUTTON:
+            is_paid_for_memories = _memories_is_paid(backup["id"])
+
+            if SHOW_MEMORIES_BUTTON and is_paid_for_memories:
                 if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
                     st.session_state["selected_backup"] = backup['id']
                     st.switch_page("pages/FbMemories.py")
+            elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
+                st.caption("🔒 Memories unlocks after purchase")
 
         st.divider()
     st.markdown("</div>", unsafe_allow_html=True)
