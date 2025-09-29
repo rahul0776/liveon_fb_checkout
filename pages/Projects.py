@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 import shutil, zipfile, concurrent.futures, random
 import time
+from io import BytesIO
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
@@ -775,21 +776,60 @@ if backups:
             except Exception:
                 pass
 
-            # Fallback (we'll zip this JSON on the success page if needed)
+            # Fallback (we'll zip JSON on the fly if needed)
             posts_blob_path = f"{backup['id']}/posts+cap.json"
 
-            # What we pass to checkout
+            # What we pass to checkout if unpaid
             blob_for_checkout = zip_blob_path or posts_blob_path
             # Name we want the user to get (prefer .zip)
             download_name = zip_name or f"{backup['id'].replace('/', '_')}.zip"
 
-            if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
-                st.session_state["pending_download"] = {
-                    "blob_path": blob_for_checkout,
-                    "file_name": download_name,
-                    "user_id": st.session_state.get("fb_id", "")
-                }
-                st.switch_page("pages/FB_Backup.py")
+            # --- NEW: If paid, show a real download; else, show the pay button
+            paid_for_download = _memories_is_paid(backup["id"])
+
+            if paid_for_download:
+                try:
+                    if zip_blob_path:
+                        # Directly download the existing .zip from Azure
+                        data = container_client.get_blob_client(zip_blob_path).download_blob().readall()
+                        st.download_button(
+                            "📥 Download Backup",
+                            data=data,
+                            file_name=download_name,
+                            mime="application/zip",
+                            use_container_width=True,
+                            key=f"dl_{safe_id}",
+                        )
+                    else:
+                        # No .zip in storage yet — zip the JSON on the fly so the user still gets a .zip
+                        posts_bc = container_client.get_blob_client(posts_blob_path)
+                        if posts_bc.exists():
+                            raw = posts_bc.download_blob().readall()
+                            mem = BytesIO()
+                            with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as zf:
+                                zf.writestr("posts+cap.json", raw)
+                            mem.seek(0)
+                            st.download_button(
+                                "📥 Download Backup",
+                                data=mem.getvalue(),
+                                file_name=download_name,
+                                mime="application/zip",
+                                use_container_width=True,
+                                key=f"dl_{safe_id}",
+                            )
+                        else:
+                            st.warning("Backup file isn’t available yet. Please try again in a moment.")
+                except Exception as e:
+                    st.error(f"Download failed: {e}")
+            else:
+                if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
+                    st.session_state["pending_download"] = {
+                        "blob_path": blob_for_checkout,
+                        "file_name": download_name,
+                        "user_id": st.session_state.get("fb_id", "")
+                    }
+                    st.switch_page("pages/FB_Backup.py")
+
 
 
 
