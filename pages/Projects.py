@@ -849,7 +849,6 @@ if backups:
                                 "📥 Download Backup",
                                 sas,
                                 use_container_width=True,
-                                key=f"dl_{safe_id}",
                             )
                         else:
                             # Fallback: stream bytes via Streamlit
@@ -862,6 +861,7 @@ if backups:
                                 use_container_width=True,
                                 key=f"dl_{safe_id}",
                             )
+
                     else:
                         # No .zip in storage yet — zip the JSON on the fly so the user still gets a .zip
                         posts_bc = container_client.get_blob_client(posts_blob_path)
