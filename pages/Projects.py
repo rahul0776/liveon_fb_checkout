@@ -191,6 +191,25 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
   transition: transform .15s ease, filter .15s ease, box-shadow .15s ease !important;
 }
 .stButton>button:hover, .stDownloadButton button:hover{ transform: translateY(-1px); filter: brightness(.97); box-shadow:0 6px 18px rgba(246,195,93,.28) !important; }
+/* Make st.link_button look like our primary buttons */
+.stLinkButton > a{
+  background: var(--gold) !important;
+  color: #111 !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 10px 16px !important;
+  font-weight: 800 !important;
+  box-shadow: 0 4px 14px rgba(246,195,93,.22) !important;
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease !important;
+  width: 100% !important;
+  display: inline-flex; justify-content: center; align-items: center;
+  text-decoration: none !important;
+}
+.stLinkButton > a:hover{
+  transform: translateY(-1px);
+  filter: brightness(.97);
+  box-shadow: 0 6px 18px rgba(246,195,93,.28) !important;
+}
 .card{ background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 24px rgba(0,0,0,.18); padding:24px; margin-bottom:24px; transition:.2s; }
 .card:hover{ transform: translateY(-2px); }
 .header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; padding-bottom:16px; border-bottom:1px solid var(--line); }
