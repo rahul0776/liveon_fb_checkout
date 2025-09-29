@@ -14,6 +14,8 @@ from urllib.parse import quote_plus
 import shutil, zipfile, concurrent.futures, random
 import time
 from io import BytesIO
+from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+from datetime import timedelta
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
@@ -501,6 +503,56 @@ def _memories_is_paid(prefix: str) -> bool:
         pass
     return False
 
+def _download_is_paid(prefix: str) -> bool:
+    """
+    True if user is entitled to DOWNLOAD this backup.
+    Looks for:
+      - entitlements.json with download/is_paid/paid flags
+      - marker files: .paid.download / .paid.memories / .paid / paid.flag
+    """
+    try:
+        bc = container_client.get_blob_client(f"{prefix}/entitlements.json")
+        if bc.exists():
+            try:
+                ent = json.loads(bc.download_blob().readall().decode("utf-8"))
+            except Exception:
+                ent = {}
+            if bool(ent.get("download") or ent.get("is_paid") or ent.get("paid")):
+                return True
+
+        for name in (".paid.download", ".paid.memories", ".paid", "paid.flag"):
+            if container_client.get_blob_client(f"{prefix}/{name}").exists():
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
+    """
+    Build a time-limited (read-only) SAS URL to the given blob.
+    Falls back to None if we can't access the account key.
+    """
+    try:
+        conn = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
+        parts = dict(p.split("=", 1) for p in conn.split(";") if "=" in p)
+        account_name = parts.get("AccountName") or blob_service_client.account_name
+        account_key = parts.get("AccountKey")
+        if not account_key:
+            return None  # connection string doesn't carry a key (e.g., SAS-based)
+        sas = generate_blob_sas(
+            account_name=account_name,
+            container_name=CONTAINER,
+            blob_name=blob_path,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.utcnow() + timedelta(minutes=minutes),
+        )
+        return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{blob_path}?{sas}"
+    except Exception:
+        return None
+
+
 # -----------------------
 # Load existing backups (show only the most recent) + enforce single
 # -----------------------
@@ -785,21 +837,31 @@ if backups:
             download_name = zip_name or f"{backup['id'].replace('/', '_')}.zip"
 
             # --- NEW: If paid, show a real download; else, show the pay button
-            paid_for_download = _memories_is_paid(backup["id"])
+            paid_for_download = _download_is_paid(backup["id"])
 
             if paid_for_download:
                 try:
                     if zip_blob_path:
-                        # Directly download the existing .zip from Azure
-                        data = container_client.get_blob_client(zip_blob_path).download_blob().readall()
-                        st.download_button(
-                            "📥 Download Backup",
-                            data=data,
-                            file_name=download_name,
-                            mime="application/zip",
-                            use_container_width=True,
-                            key=f"dl_{safe_id}",
-                        )
+                        # Prefer a direct SAS link for reliability (large files)
+                        sas = _sas_url_for_blob(zip_blob_path)
+                        if sas:
+                            st.link_button(
+                                "📥 Download Backup",
+                                sas,
+                                use_container_width=True,
+                                key=f"dl_{safe_id}",
+                            )
+                        else:
+                            # Fallback: stream bytes via Streamlit
+                            data = container_client.get_blob_client(zip_blob_path).download_blob().readall()
+                            st.download_button(
+                                "📥 Download Backup",
+                                data=data,
+                                file_name=download_name,
+                                mime="application/zip",
+                                use_container_width=True,
+                                key=f"dl_{safe_id}",
+                            )
                     else:
                         # No .zip in storage yet — zip the JSON on the fly so the user still gets a .zip
                         posts_bc = container_client.get_blob_client(posts_blob_path)
@@ -821,6 +883,7 @@ if backups:
                             st.warning("Backup file isn’t available yet. Please try again in a moment.")
                 except Exception as e:
                     st.error(f"Download failed: {e}")
+
             else:
                 if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
                     st.session_state["pending_download"] = {
@@ -829,6 +892,10 @@ if backups:
                         "user_id": st.session_state.get("fb_id", "")
                     }
                     st.switch_page("pages/FB_Backup.py")
+            
+            if DEBUG:
+                st.caption(f"debug: paid_for_download={paid_for_download} • prefix={backup['id']}")
+
 
 
 

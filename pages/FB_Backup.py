@@ -85,7 +85,7 @@ def _backup_prefix_from_blob_path(blob_path: str) -> str:
 def _write_entitlements(prefix: str, session: dict) -> None:
     """
     Write (or update) entitlements.json in the given backup prefix and
-    drop a tiny marker file '.paid.memories' as a fallback.
+    drop tiny marker files for memories & download.
     """
     ent = {
         "memories": True,
@@ -100,7 +100,11 @@ def _write_entitlements(prefix: str, session: dict) -> None:
     }
     bc = _container.get_blob_client(f"{prefix}/entitlements.json")
     bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
+
+    # markers (zero-byte files are fine)
     _container.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
+    _container.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)  # 👈 NEW
+
 
 # --- NEW: accept prod_ or price_ and resolve to a Price ID
 def _resolve_price_id(price_or_prod: str | None) -> str | None:
