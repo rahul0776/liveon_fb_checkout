@@ -103,7 +103,12 @@ restore_session()
 # creator collapsed by default + running flag
 st.session_state.setdefault("show_creator", False)
 st.session_state.setdefault("backup_running", False)
-
+# Persistent banner while a backup is running
+if st.session_state.get("backup_running"):
+    st.info(
+        "⏳ We’re creating your backup now. This process can take a few minutes depending on your Facebook data size. "
+        "Please keep this tab open and be patient."
+    )
 for key in ["fb_token", "fb_id", "fb_name"]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -642,6 +647,12 @@ if not st.session_state["show_creator"]:
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("📦 Create Facebook Backup")
+    # Clear upfront warning about duration
+    st.info(
+        "Heads up: Creating your backup can take **several minutes**. "
+        "Please keep this tab open; you’ll see live progress below."
+    )
+
     st.markdown("""<div class="instructions">
     <strong>How to create your backup:</strong>
     <ol><li><strong>Click "Start My Backup"</strong></li></ol>
@@ -660,9 +671,12 @@ else:
 
         if st.button("⬇️ Start My Backup", disabled=start_disabled):
             st.session_state["backup_running"] = True
-            st.toast("Starting your backup…", icon="🟡")
 
-            overall = st.progress(0, text="Preparing to start…")
+            # Immediate, explicit feedback about duration
+            st.toast("Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
+            st.caption("Tip: Don’t close this browser tab while we work. You’ll see each step complete below.")
+
+            overall = st.progress(0, text="Preparing to start… (this can take a few minutes)")
 
             with st.status("Working on your backup…", state="running", expanded=True) as status:
                 steps = [
@@ -715,7 +729,7 @@ else:
                         overall.progress(pct, text=f"Processing images & captions… ({done_count}/{total})")
 
                 steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(45, text="Images & captions processed")
+                overall.progress(45, text="Images & captions processed (this step can take a few minutes)")
 
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
                 save_json(posts, "posts+cap")
@@ -736,7 +750,8 @@ else:
                 cc = blob_service_client.get_container_client(CONTAINER)
                 result_bc = cc.get_blob_client(result_blob_name)
 
-                overall.progress(85, text="Waiting for AI summary from worker…")
+                overall.progress(85, text="Waiting for AI summary from worker… this part may take a few minutes")
+
                 wait_seconds = 60  # adjust if you like
                 found = False
                 for _ in range(wait_seconds):
