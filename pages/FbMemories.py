@@ -331,6 +331,36 @@ def stable_uuid_suffix(chap: str, post_idx: int, img_idx: int, img_url: str) -> 
     return store[k]
 
 
+def _ours_blob_path(u: str) -> str | None:
+    """
+    If u is our Azure HTTPS URL or a raw blob-path, return the blob-path.
+    Else return None.
+    """
+    if not isinstance(u, str) or not u.strip():
+        return None
+    u = u.strip()
+    # raw blob-like "folder/images/x.jpg"
+    if ("/" in u) and (not u.startswith("http")) and (not u.lower().startswith("app-assets/")):
+        return u
+    # https://<account>.blob.core.windows.net/backup/<blob_path>[?...]  -> <blob_path>
+    return _to_blob_path_if_ours_https(u)
+
+def _prefer_azure(images: list[str]) -> list[str]:
+    """
+    If any Azure blobs exist in `images`, return ONLY those (as blob-paths).
+    Otherwise return the original list (non-empty items only).
+    """
+    azure_paths, others = [], []
+    for s in images or []:
+        if not _is_displayable_image_ref(s):
+            continue
+        bp = _ours_blob_path(s)
+        if bp:
+            azure_paths.append(bp)          # store as blob paths
+        else:
+            others.append(s)
+    return azure_paths if azure_paths else others
+
 
 def make_safe_key(chap, idx, img_url):
     """Generate a unique and safe Streamlit key using a hash."""
@@ -1038,7 +1068,7 @@ def render_chapter_grid(chapter: str, posts: list[dict]):
         # ✅ SANITIZE
 
         raw_images = p.get("images") or []
-        images = [u for u in raw_images if _is_displayable_image_ref(u)]
+        images = _prefer_azure([u for u in raw_images if _is_displayable_image_ref(u)])
         if not images:
             images = ["https://via.placeholder.com/300x200?text=No+Image+Available"]
 
@@ -1105,7 +1135,7 @@ def render_chapter_post_images(chap_title, chapter_posts, classification, FUNCTI
 
     for post_idx, post in enumerate(chapter_posts):
         images = post.get("images", []) or ([post.get("image")] if "image" in post else [])
-        images = [u for u in images if _is_displayable_image_ref(u)]
+        images = _prefer_azure([u for u in images if _is_displayable_image_ref(u)])
             
         if not images:
             continue
@@ -2051,12 +2081,41 @@ try:
     st.success(f"✅ Loaded {len(posts)} unique posts")
     st.session_state["all_posts_raw"] = posts
     for p in posts:
+        # clean text
         if _is_numeric_only(p.get("message")):
             p["message"] = ""
+        else:
+            p["message"] = _text(p.get("message"))
+
         if _is_numeric_only(p.get("context_caption")):
             p["context_caption"] = ""
-        if "images" in p:
-            p["images"] = _clean_images_list(p.get("images"))
+        else:
+            p["context_caption"] = _text(p.get("context_caption"))
+
+        # collect images from common fields
+        imgs = []
+        if "images" in p and isinstance(p["images"], list):
+            imgs = p["images"]
+        elif isinstance(p.get("full_picture"), str) and p["full_picture"].startswith("http"):
+            imgs = [p["full_picture"]]
+        elif isinstance(p.get("picture"), str) and p["picture"].startswith("http"):
+            imgs = [p["picture"]]
+
+        # sanitize, then prefer Azure versions and drop external fbcdn if any Azure exists
+        imgs = _clean_images_list(imgs)
+        imgs = _prefer_azure(imgs)
+
+        # store as blob-paths when possible; display signing happens later
+        p["images"] = imgs
+        p["normalized_images"] = imgs
+
+        # a combined text that never shows lone zeros
+        message = p.get("message") or ""
+        caption = p.get("context_caption") or ""
+        combined = message
+        if caption and caption not in message:
+            combined += f" — {caption}"
+        p["combined_text"] = combined or "📷"
 
 
     # --- Minimal 3-image hero (now uses promo images) ---
