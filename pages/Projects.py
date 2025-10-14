@@ -367,12 +367,21 @@ def dense_caption(img_path):
 
 def zip_backup(zip_name):
     zip_path = Path(zip_name)
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for folder, _, files in os.walk(BACKUP_DIR):
-            for file in files:
-                fp = os.path.join(folder, file)
-                arcname = os.path.relpath(fp, BACKUP_DIR)
-                zipf.write(fp, arcname)
+    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+        # 1) summary.json at the root (if it exists)
+        summary_fp = BACKUP_DIR / "summary.json"
+        if summary_fp.exists():
+            zipf.write(summary_fp, arcname="summary.json")
+
+        # 2) everything under images/ (preserve folder structure)
+        if IMG_DIR.exists():
+            for folder, _, files in os.walk(IMG_DIR):
+                for file in files:
+                    fp = Path(folder) / file
+                    # arcname relative to BACKUP_DIR ensures "images/..." in the zip
+                    arcname = os.path.relpath(fp, BACKUP_DIR)
+                    zipf.write(fp, arcname)
+
     return zip_path
 
 def extract_image_urls(post):
