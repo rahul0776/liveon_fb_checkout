@@ -290,10 +290,6 @@ def _write_entitlements(prefix: str, session: dict) -> None:
     container_client.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
     container_client.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)
 
-# Handle Stripe return on page load
-if handle_stripe_return():
-    st.rerun()
-
 fb_id = st.session_state["fb_id"]
 fb_name = st.session_state.get("fb_name")
 fb_token = st.session_state["fb_token"]
@@ -381,6 +377,10 @@ button[data-testid="baseButton-secondary"].danger:hover{
 }
 </style>
 """, unsafe_allow_html=True)
+
+# Handle Stripe return after session state is initialized
+if handle_stripe_return():
+    st.rerun()
 
 st.markdown(f"""
 <div class="header">
