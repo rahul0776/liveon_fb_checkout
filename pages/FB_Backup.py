@@ -178,13 +178,14 @@ try:
             backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
 
             if not backup_prefix:
-                st.error("Paid, but couldn’t resolve the backup prefix. Contact support.")
+                st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
             else:
                 _write_entitlements(backup_prefix, sess)
-                st.success("✅ Payment confirmed — Memories unlocked for this backup!")
-
-                # remember which backup to open if the user clicks Memories later
+                
+                # Redirect to Projects.py instead of showing success message here
                 st.session_state["selected_backup"] = backup_prefix
+                st.session_state["payment_success"] = True
+                st.switch_page("pages/Projects.py")
 
                 # keep the cache token alive as we go back to Projects
                 cache = qp.get("cache")

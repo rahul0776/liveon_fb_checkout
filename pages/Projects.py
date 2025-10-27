@@ -355,6 +355,11 @@ button[data-testid="baseButton-secondary"].danger:hover{
 if handle_stripe_return():
     st.rerun()
 
+# Handle payment success redirect from FB_Backup.py
+if st.session_state.get("payment_success"):
+    st.success("✅ Payment confirmed — Memories unlocked for this backup!")
+    st.session_state["payment_success"] = False  # Clear the flag
+
 st.markdown(f"""
 <div class="header">
   <div>
