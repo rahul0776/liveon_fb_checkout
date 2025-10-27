@@ -10,12 +10,13 @@ from azure.storage.blob import BlobServiceClient
 import requests
 import hashlib
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 import shutil, zipfile, concurrent.futures, random
 import time
 from io import BytesIO
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from datetime import timedelta
+import stripe
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
@@ -137,6 +138,50 @@ if get_blob_service_client() is None:
 blob_service_client = get_blob_service_client()
 container_client = blob_service_client.get_container_client("backup")
 
+# ---------------------------
+# Stripe Payment Configuration
+# ---------------------------
+def _get_secret(name: str, default: str | None = None) -> str | None:
+    try:
+        return st.secrets[name]
+    except Exception:
+        return os.environ.get(name, default)
+
+# Stripe config
+STRIPE_SECRET_KEY = _get_secret("STRIPE_SECRET_KEY")
+RAW_PRICE_OR_PRODUCT_ID = _get_secret("STRIPE_PRICE_ID", "price_1234567890placeholder")
+SUCCESS_URL = _get_secret("STRIPE_SUCCESS_URL", "http://localhost:8501/Projects")
+CANCEL_URL = _get_secret("STRIPE_CANCEL_URL", "http://localhost:8501/Projects")
+
+BILLING_READY = bool(STRIPE_SECRET_KEY)
+if BILLING_READY:
+    stripe.api_key = STRIPE_SECRET_KEY
+
+def _resolve_price_id(price_or_prod: str | None) -> str | None:
+    """Return a Price ID for either a Price or Product input; None if not resolvable."""
+    if not price_or_prod:
+        return None
+    if price_or_prod.startswith("price_"):
+        return price_or_prod
+    if price_or_prod.startswith("prod_"):
+        try:
+            prod = stripe.Product.retrieve(price_or_prod)
+            default_price = prod.get("default_price")
+            if default_price:
+                return default_price
+            prices = stripe.Price.list(product=price_or_prod, active=True, limit=1)
+            if prices.data:
+                return prices.data[0].id
+            st.error("This Product has no active Prices in this Stripe mode (test/live).")
+            return None
+        except Exception as e:
+            st.error(f"Could not resolve a Price for Product '{price_or_prod}': {e}")
+            return None
+    st.error("STRIPE_PRICE_ID must be a 'price_...' or 'prod_...' value.")
+    return None
+
+RESOLVED_PRICE_ID = _resolve_price_id(RAW_PRICE_OR_PRODUCT_ID)
+
 # ---------------------------------------
 # Fb profile (ensures name/id in session)
 # ---------------------------------------
@@ -176,6 +221,78 @@ missing_keys = [k for k in ["fb_id", "fb_name", "fb_token"] if not st.session_st
 if missing_keys:
     st.warning(f"⚠️ Missing session keys: {missing_keys}")
     st.stop()
+
+# ---------------------------
+# Stripe Payment Return Handler
+# ---------------------------
+def handle_stripe_return():
+    """Handle Stripe payment return in Projects.py instead of separate success page."""
+    qp = st.query_params
+    session_id = qp.get("session_id")
+    if isinstance(session_id, list):
+        session_id = session_id[0]
+
+    if BILLING_READY and session_id:
+        try:
+            sess = stripe.checkout.Session.retrieve(session_id)
+        except stripe.error.StripeError as e:
+            st.error(f"Stripe API error: {e}")
+            return False
+        except Exception as e:
+            st.error(f"Unexpected error retrieving payment session: {e}")
+            return False
+        
+        if (sess.get("payment_status") or "").lower() == "paid":
+            md = sess.get("metadata") or {}
+            blob_path = md.get("blob") or qp.get("blob") or ""
+            backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+
+            if not backup_prefix:
+                st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
+                return False
+            else:
+                _write_entitlements(backup_prefix, sess)
+                st.success("✅ Payment confirmed — Memories unlocked for this backup!")
+                st.session_state["selected_backup"] = backup_prefix
+                return True
+        else:
+            payment_status = sess.get("payment_status", "unknown")
+            if payment_status == "unpaid":
+                st.warning("Payment was not completed. Please try again or contact support if you were charged.")
+            elif payment_status == "no_payment_required":
+                st.info("No payment was required for this session.")
+            else:
+                st.warning(f"Payment status is '{payment_status}'. Please contact support if you were charged.")
+            return False
+    return False
+
+def _backup_prefix_from_blob_path(blob_path: str) -> str:
+    """Extract backup prefix from blob path."""
+    return str(blob_path).rsplit("/", 1)[0].strip("/")
+
+def _write_entitlements(prefix: str, session: dict) -> None:
+    """Write entitlements.json and marker files for paid backup."""
+    ent = {
+        "memories": True,
+        "download": True,
+        "paid": True,
+        "paid_at": datetime.now(timezone.utc).isoformat(),
+        "checkout_id": session.get("id"),
+        "amount": (session.get("amount_total") or 0) / 100.0,
+        "currency": session.get("currency"),
+        "fb_id": (session.get("metadata") or {}).get("fb_id"),
+        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+    }
+    bc = container_client.get_blob_client(f"{prefix}/entitlements.json")
+    bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
+    
+    # markers (zero-byte files are fine)
+    container_client.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
+    container_client.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)
+
+# Handle Stripe return on page load
+if handle_stripe_return():
+    st.rerun()
 
 fb_id = st.session_state["fb_id"]
 fb_name = st.session_state.get("fb_name")
@@ -982,7 +1099,8 @@ if backups:
                         "file_name": download_name,
                         "user_id": st.session_state.get("fb_id", "")
                     }
-                    st.switch_page("pages/FB_Backup.py")
+                    st.session_state["show_payment_modal"] = True
+                    st.rerun()
             
             if DEBUG:
                 st.caption(f"debug: paid_for_download={paid_for_download} • prefix={backup['id']}")
@@ -1010,3 +1128,84 @@ else:
         <p>Create your first backup to get started.</p>
     </div>
     """, unsafe_allow_html=True)
+
+# ---------------------------
+# Payment Modal (Inline)
+# ---------------------------
+if st.session_state.get("show_payment_modal"):
+    pending = st.session_state.get("pending_download")
+    display_name = (pending or {}).get("file_name") or "backup.zip"
+    if not display_name.lower().endswith(".zip"):
+        display_name = display_name.rsplit(".", 1)[0] + ".zip"
+
+    # compute per-user cache hash
+    token = st.session_state.get("fb_token", "")
+    token_hash = hashlib.md5(token.encode()).hexdigest() if token else ""
+
+    success_url_for_item = SUCCESS_URL
+    if pending and isinstance(pending, dict) and pending.get("blob_path"):
+        base_params = {
+            "blob": pending["blob_path"],
+            "name": display_name,
+        }
+        if token_hash:
+            base_params["cache"] = token_hash
+        sep0 = '&' if '?' in SUCCESS_URL else '?'
+        success_url_for_item = f"{SUCCESS_URL}{sep0}{urlencode(base_params)}"
+
+    st.markdown("---")
+    st.markdown("### 💳 Complete Payment")
+    st.caption(f"After payment, your download of **{display_name}** will start automatically.")
+    
+    # Payment UI
+    if not BILLING_READY:
+        st.info("⚠️ Stripe is not configured (missing STRIPE_SECRET_KEY). The checkout button is disabled.\n\nAdd STRIPE_SECRET_KEY to Streamlit Secrets. You can also set STRIPE_PRICE_ID / STRIPE_SUCCESS_URL / STRIPE_CANCEL_URL.")
+    
+    price_is_placeholder = (not RESOLVED_PRICE_ID) or RESOLVED_PRICE_ID.endswith("placeholder")
+    
+    if st.button("💳 Buy Now for $9.99", disabled=(not BILLING_READY or price_is_placeholder), key="payment_btn"):
+        try:
+            # add session_id to success url
+            sep = '&' if '?' in success_url_for_item else '?'
+            success_url_with_session = f"{success_url_for_item}{sep}session_id={{CHECKOUT_SESSION_ID}}"
+
+            session = stripe.checkout.Session.create(
+                payment_method_types=["card"],
+                line_items=[{"price": RESOLVED_PRICE_ID, "quantity": 1}],
+                mode="payment",
+                success_url=success_url_with_session,
+                cancel_url=CANCEL_URL,
+                allow_promotion_codes=True,
+                metadata={
+                    "fb_id": st.session_state.get("fb_id", ""),
+                    "fb_name": st.session_state.get("fb_name", ""),
+                    "blob": (pending or {}).get("blob_path", ""),
+                    "name": (pending or {}).get("file_name", ""),
+                    "backup_prefix": _backup_prefix_from_blob_path((pending or {}).get("blob_path", "")),
+                },
+                customer_email=st.session_state.get("fb_email")
+            )
+            st.success("✅ Checkout session created!")
+            
+            # Use JavaScript redirect to keep same tab
+            st.components.v1.html(f"""
+            <script>
+                window.location.href = "{session.url}";
+            </script>
+            """, height=0)
+            
+            st.session_state.pop("pending_download", None)
+            st.session_state["show_payment_modal"] = False
+            st.caption("You'll be taken to Stripe to complete your payment.")
+        except stripe.error.StripeError as e:
+            st.error(f"Stripe checkout error: {e}")
+        except Exception as e:
+            st.error(f"Unexpected error creating checkout session: {e}")
+
+    if price_is_placeholder and BILLING_READY:
+        st.caption("Set a real STRIPE_PRICE_ID (price_… or prod_… with an active price) in Secrets to enable the button.")
+    
+    if st.button("❌ Cancel Payment", key="cancel_payment"):
+        st.session_state["show_payment_modal"] = False
+        st.session_state.pop("pending_download", None)
+        st.rerun()
