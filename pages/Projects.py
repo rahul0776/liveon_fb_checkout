@@ -38,12 +38,16 @@ def qp_get(name, default=None):
     try:
         return st.query_params.get(name)  # >= 1.31
     except Exception:
+        if DEBUG:
+            st.sidebar.info("Using deprecated query_params API for compatibility")
         return st.experimental_get_query_params().get(name, [default])[0]
 
 def qp_set(**kwargs):
     try:
         st.query_params.update(kwargs)  # >= 1.31
     except Exception:
+        if DEBUG:
+            st.sidebar.info("Using deprecated query_params API for compatibility")
         st.experimental_set_query_params(**kwargs)
 
 # ---------------------------
@@ -51,6 +55,12 @@ def qp_set(**kwargs):
 # ---------------------------
 def safe_token_hash(token: str) -> str:
     return hashlib.md5(token.encode()).hexdigest()
+
+def ensure_cache_dir():
+    """Centralized cache directory initialization to avoid race conditions."""
+    cache_dir = Path("cache")
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir
 
 def restore_session():
     """
@@ -132,14 +142,16 @@ container_client = blob_service_client.get_container_client("backup")
 # ---------------------------------------
 if "fb_token" in st.session_state and st.session_state["fb_token"]:
     try:
-        profile = requests.get(
-            f"https://graph.facebook.com/me?fields=id,name,email&access_token={st.session_state['fb_token']}"
-        ).json()
+        response = requests.get(
+            f"https://graph.facebook.com/me?fields=id,name,email&access_token={st.session_state['fb_token']}",
+            timeout=10
+        )
+        response.raise_for_status()
+        profile = response.json()
         st.session_state["fb_id"] = str(profile.get("id")).strip()
         st.session_state["fb_name"] = profile.get("name")
         # NEW: persist token + minimal profile so refresh can restore (per-user file only)
-        cache_dir = Path("cache")
-        cache_dir.mkdir(exist_ok=True)
+        cache_dir = ensure_cache_dir()
         token = st.session_state["fb_token"]
         token_hash = hashlib.md5(token.encode()).hexdigest()
         payload = {
@@ -153,7 +165,11 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
         qp_set(cache=token_hash)
 
     except Exception as e:
-        st.error(f"Failed to refresh Facebook user info: {e}")
+        if DEBUG:
+            st.error(f"Failed to refresh Facebook user info: {e}")
+            st.code(f"Debug info: Token length={len(st.session_state.get('fb_token', ''))}")
+        else:
+            st.error(f"Failed to refresh Facebook user info: {e}")
         st.stop()
 
 missing_keys = [k for k in ["fb_id", "fb_name", "fb_token"] if not st.session_state.get(k)]
@@ -285,15 +301,21 @@ def fetch_data(endpoint, token, since=None, until=None, fields=None):
     # remove hard 20-page cap; use high configurable max instead
     while url and pages < MAX_FB_PAGES:
         try:
-            res = requests.get(url, timeout=20).json()
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            res = response.json()
             if "error" in res:
-                st.warning(f"Skipping {endpoint}: {res['error'].get('message')}")
+                error_msg = res.get("error", {}).get("message", "Unknown Facebook API error")
+                st.warning(f"Skipping {endpoint}: {error_msg}")
                 break
             data.extend(res.get("data", []))
             url = res.get("paging", {}).get("next")
             pages += 1
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             st.warning(f"Network error on {endpoint}: {e}")
+            break
+        except Exception as e:
+            st.warning(f"Unexpected error on {endpoint}: {e}")
             break
 
     # optional heads-up if you actually hit the max and still had a next page
@@ -351,8 +373,15 @@ def generate_blob_url(folder_prefix: str, image_name: str) -> str:
     return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{folder_prefix}/images/{quote_plus(image_name)}"
 
 def dense_caption(img_path):
-    endpoint = st.secrets["AZURE_VISION_ENDPOINT"].rstrip("/") + "/vision/v3.2/analyze?visualFeatures=Description,Tags,Objects"
-    headers = {"Ocp-Apim-Subscription-Key": st.secrets["AZURE_VISION_KEY"], "Content-Type": "application/octet-stream"}
+    # Validate required secrets
+    vision_endpoint = st.secrets.get("AZURE_VISION_ENDPOINT")
+    vision_key = st.secrets.get("AZURE_VISION_KEY")
+    
+    if not vision_endpoint or not vision_key:
+        return "No caption (Azure Vision API not configured)"
+    
+    endpoint = vision_endpoint.rstrip("/") + "/vision/v3.2/analyze?visualFeatures=Description,Tags,Objects"
+    headers = {"Ocp-Apim-Subscription-Key": vision_key, "Content-Type": "application/octet-stream"}
     try:
         with open(img_path, "rb") as f: data = f.read()
         r = requests.post(endpoint, headers=headers, data=data, timeout=8)
@@ -671,9 +700,26 @@ else:
         st.warning("You already have an active backup. Delete it first.")
     else:
         token = st.session_state["fb_token"]
-        fb_profile = requests.get(f"https://graph.facebook.com/me?fields=id,name,email&access_token={token}").json()
-        fb_name_slug = (fb_profile.get("name", "user") or "user").replace(" ", "_")
-        fb_id_val = fb_profile.get("id")
+        try:
+            response = requests.get(f"https://graph.facebook.com/me?fields=id,name,email&access_token={token}", timeout=10)
+            response.raise_for_status()
+            fb_profile = response.json()
+            fb_name_slug = (fb_profile.get("name", "user") or "user").replace(" ", "_")
+            fb_id_val = fb_profile.get("id")
+        except requests.exceptions.RequestException as e:
+            if DEBUG:
+                st.error(f"Failed to fetch Facebook profile: {e}")
+                st.code(f"Debug info: Token length={len(token)}")
+            else:
+                st.error(f"Failed to fetch Facebook profile: {e}")
+            st.stop()
+        except Exception as e:
+            if DEBUG:
+                st.error(f"Unexpected error fetching profile: {e}")
+                st.code(f"Debug info: Token length={len(token)}")
+            else:
+                st.error(f"Unexpected error fetching profile: {e}")
+            st.stop()
         folder_prefix = f"{fb_id_val}/{fb_name_slug}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         start_disabled = st.session_state.get("backup_running", False)
@@ -711,11 +757,14 @@ else:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     futures = []
                     for post in posts:
+                        # Safe array access: get first image if images array exists and is not empty
                         img_url = post.get("images")[0] if post.get("images") else None
                         if not img_url:
                             continue
                         try:
-                            img_path = download_image(img_url, post["id"])
+                            # Generate fallback ID if post doesn't have one
+                            post_id = post.get("id", hashlib.md5(f"{post.get('message','')}{img_url}".encode()).hexdigest()[:12])
+                            img_path = download_image(img_url, post_id)
                             futures.append((post, executor.submit(dense_caption, img_path)))
                             signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
                             post["picture"] = signed_url
@@ -800,8 +849,7 @@ else:
                 steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
                 overall.progress(95, text="Cleanup complete")
 
-                cache_file = Path(f"cache/backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json")
-                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                cache_file = ensure_cache_dir() / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
                 latest_backup = {
                     "Name": fb_name_slug,
                     "Created On": datetime.now().strftime("%b %d, %Y"),

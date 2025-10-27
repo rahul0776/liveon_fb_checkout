@@ -163,7 +163,15 @@ try:
         session_id = session_id[0]
 
     if BILLING_READY and session_id:
-        sess = stripe.checkout.Session.retrieve(session_id)
+        try:
+            sess = stripe.checkout.Session.retrieve(session_id)
+        except stripe.error.StripeError as e:
+            st.error(f"Stripe API error: {e}")
+            st.stop()
+        except Exception as e:
+            st.error(f"Unexpected error retrieving payment session: {e}")
+            st.stop()
+        
         if (sess.get("payment_status") or "").lower() == "paid":
             md = sess.get("metadata") or {}
             blob_path = md.get("blob") or qp.get("blob") or ""
@@ -188,7 +196,13 @@ try:
                 st.link_button("📘 Open Projects", proj_url)
                 st.stop()
         else:
-            st.info("We returned from checkout but the payment isn’t marked as paid yet.")
+            payment_status = sess.get("payment_status", "unknown")
+            if payment_status == "unpaid":
+                st.warning("Payment was not completed. Please try again or contact support if you were charged.")
+            elif payment_status == "no_payment_required":
+                st.info("No payment was required for this session.")
+            else:
+                st.warning(f"Payment status is '{payment_status}'. Please contact support if you were charged.")
 except Exception as e:
     st.warning(f"Post-payment handler error: {e}")
 
@@ -227,22 +241,29 @@ if st.button("💳 Buy Now for $9.99", disabled=(not BILLING_READY or price_is_p
         sep = '&' if '?' in success_url_for_item else '?'
         success_url_with_session = f"{success_url_for_item}{sep}session_id={{CHECKOUT_SESSION_ID}}"
 
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{"price": RESOLVED_PRICE_ID, "quantity": 1}],
-            mode="payment",
-            success_url=success_url_with_session,
-            cancel_url=CANCEL_URL,
-            allow_promotion_codes=True,
-            metadata={
-                "fb_id": st.session_state.get("fb_id", ""),
-                "fb_name": st.session_state.get("fb_name", ""),
-                "blob": (pending or {}).get("blob_path", ""),
-                "name": (pending or {}).get("file_name", ""),
-                "backup_prefix": _backup_prefix_from_blob_path((pending or {}).get("blob_path", "")),  # 👈 add this
-            },
-            customer_email=st.session_state.get("fb_email")
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                payment_method_types=["card"],
+                line_items=[{"price": RESOLVED_PRICE_ID, "quantity": 1}],
+                mode="payment",
+                success_url=success_url_with_session,
+                cancel_url=CANCEL_URL,
+                allow_promotion_codes=True,
+                metadata={
+                    "fb_id": st.session_state.get("fb_id", ""),
+                    "fb_name": st.session_state.get("fb_name", ""),
+                    "blob": (pending or {}).get("blob_path", ""),
+                    "name": (pending or {}).get("file_name", ""),
+                    "backup_prefix": _backup_prefix_from_blob_path((pending or {}).get("blob_path", "")),  # 👈 add this
+                },
+                customer_email=st.session_state.get("fb_email")
+            )
+        except stripe.error.StripeError as e:
+            st.error(f"Stripe checkout error: {e}")
+            st.stop()
+        except Exception as e:
+            st.error(f"Unexpected error creating checkout session: {e}")
+            st.stop()
         st.success("✅ Checkout session created!")
         st.link_button("👉 Continue to Secure Checkout", session.url)
         st.session_state.pop("pending_download", None)

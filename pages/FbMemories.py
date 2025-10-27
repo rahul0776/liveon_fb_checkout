@@ -819,8 +819,38 @@ def call_function(endpoint:str, payload:dict, timeout:int=90):
         res = requests.post(url, json=payload, timeout=timeout)
         res.raise_for_status()
         return res
+    except requests.exceptions.Timeout:
+        if advanced_mode:
+            st.error(f"❌ Azure Function timeout: The AI service took longer than {timeout} seconds to respond. Please try again.")
+            st.code(f"Debug info: URL={url}, Payload size={len(str(payload))} chars")
+        else:
+            st.error(f"❌ Azure Function timeout: The AI service took longer than {timeout} seconds to respond. Please try again.")
+        st.stop()
+    except requests.exceptions.ConnectionError:
+        if advanced_mode:
+            st.error("❌ Azure Function connection error: Unable to reach the AI service. Please check your internet connection and try again.")
+            st.code(f"Debug info: URL={url}")
+        else:
+            st.error("❌ Azure Function connection error: Unable to reach the AI service. Please check your internet connection and try again.")
+        st.stop()
+    except requests.exceptions.HTTPError as err:
+        if err.response.status_code == 500:
+            st.error("❌ Azure Function server error: The AI service encountered an internal error. Please try again in a few minutes.")
+            if advanced_mode:
+                st.code(f"Debug info: URL={url}, Response: {err.response.text[:200]}")
+        elif err.response.status_code == 429:
+            st.error("❌ Azure Function rate limit: Too many requests. Please wait a moment and try again.")
+        else:
+            st.error(f"❌ Azure Function HTTP error ({err.response.status_code}): {err}")
+            if advanced_mode:
+                st.code(f"Debug info: URL={url}, Response: {err.response.text[:200]}")
+        st.stop()
     except requests.exceptions.RequestException as err:
-        st.error(f"❌ Azure Function error: {err}")
+        if advanced_mode:
+            st.error(f"❌ Azure Function error: {err}")
+            st.code(f"Debug info: URL={url}")
+        else:
+            st.error(f"❌ Azure Function error: {err}")
         st.stop()
 
 # --- FORCE-JSON chapter parser ---
@@ -2404,7 +2434,14 @@ if "classification" not in st.session_state:
             timeout=300
         )
 
-            classification = classify_res.json()
+            try:
+                classification = classify_res.json()
+                if not isinstance(classification, dict):
+                    st.error("Invalid response format from AI classification service.")
+                    st.stop()
+            except ValueError as e:
+                st.error(f"Failed to parse AI classification response: {e}")
+                st.stop()
 
             # 🔒 Clean once up-front
             classification = _scrub_classification(classification)
