@@ -63,6 +63,45 @@ def ensure_cache_dir():
     cache_dir.mkdir(exist_ok=True)
     return cache_dir
 
+def estimate_remaining_time(elapsed_time, progress_percent):
+    """Estimate remaining time based on elapsed time and progress percentage."""
+    if progress_percent <= 0:
+        return "calculating..."
+    
+    total_estimated_time = elapsed_time / (progress_percent / 100)
+    remaining_time = total_estimated_time - elapsed_time
+    
+    if remaining_time < 60:
+        return f"{int(remaining_time)}s"
+    elif remaining_time < 3600:
+        return f"{int(remaining_time // 60)}m {int(remaining_time % 60)}s"
+    else:
+        return f"{int(remaining_time // 3600)}h {int((remaining_time % 3600) // 60)}m"
+
+def download_with_progress(blob_client, file_name, progress_ph):
+    """Download blob with progress indication."""
+    try:
+        # Get blob size for progress calculation
+        blob_properties = blob_client.get_blob_properties()
+        total_size = blob_properties.size
+        
+        # Download in chunks to show progress
+        download_stream = blob_client.download_blob()
+        data = BytesIO()
+        downloaded = 0
+        
+        for chunk in download_stream.chunks():
+            data.write(chunk)
+            downloaded += len(chunk)
+            progress = min(100, int((downloaded / total_size) * 100))
+            progress_ph.progress(progress, text=f"📥 Downloading {file_name}... {progress}%")
+        
+        data.seek(0)
+        return data.getvalue()
+    except Exception as e:
+        progress_ph.error(f"Download failed: {e}")
+        return None
+
 def restore_session():
     """
     Restore only from a per-user cache file identified by a URL query param (?cache=<hash>)
@@ -346,6 +385,66 @@ button[data-testid="baseButton-secondary"].danger {
 }
 button[data-testid="baseButton-secondary"].danger:hover{
   border-color:#ff8e8e !important; color:#ff9d9d !important;
+}
+
+/* Skeleton Loading States */
+.skeleton-loading {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-card {
+  background: var(--card);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, #2a3a4a 25%, #3a4a5a 50%, #2a3a4a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.skeleton-title {
+  height: 20px;
+  width: 60%;
+}
+
+.skeleton-text {
+  height: 16px;
+  width: 100%;
+}
+
+.skeleton-text.short {
+  width: 40%;
+}
+
+.skeleton-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skeleton-button {
+  height: 32px;
+  width: 80px;
+  background: linear-gradient(90deg, #2a3a4a 25%, #3a4a5a 50%, #2a3a4a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -713,6 +812,23 @@ def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
 # -----------------------
 # Load existing backups (show only the most recent) + enforce single
 # -----------------------
+# Show skeleton loading while fetching backups
+backup_loading_ph = st.empty()
+with backup_loading_ph.container():
+    st.markdown("""
+    <div class="skeleton-loading">
+        <div class="skeleton-card">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line skeleton-text"></div>
+            <div class="skeleton-line skeleton-text short"></div>
+            <div class="skeleton-buttons">
+                <div class="skeleton-button"></div>
+                <div class="skeleton-button"></div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 backups = []
 try:
     user_id = str(st.session_state["fb_id"]).strip()
@@ -740,6 +856,9 @@ try:
 except Exception as e:
     st.error(f"Azure connection error: {e}")
     has_backup = False
+
+# Clear skeleton loading
+backup_loading_ph.empty()
 
 # If we just finished a backup, inject it (defensive)
 if st.session_state.pop("new_backup_done", False):
@@ -821,14 +940,17 @@ else:
 
         if st.button("⬇️ Start My Backup", disabled=start_disabled):
             st.session_state["backup_running"] = True
+            backup_start_time = time.time()
 
-            # Immediate, explicit feedback about duration
-            st.toast("Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
-            st.caption("Tip: Don’t close this browser tab while we work. You’ll see each step complete below.")
+            # Enhanced toast notification
+            st.toast("🚀 Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
+            st.caption("💡 Tip: Don't close this browser tab while we work. You'll see each step complete below.")
 
-            overall = st.progress(0, text="Preparing to start… (this can take a few minutes)")
+            # Enhanced progress with time estimation
+            overall = st.progress(0, text="Preparing to start… (estimated time: 2-5 minutes)")
+            time_estimate_ph = st.empty()
 
-            with st.status("Working on your backup…", state="running", expanded=True) as status:
+            with st.status("🔄 Working on your backup…", state="running", expanded=True) as status:
                 steps = [
                     {"label": "Fetched posts", "done": False},
                     {"label": "Processed posts & captions", "done": False},
@@ -841,12 +963,18 @@ else:
                 _render_steps(step_ph, steps)
 
                 steps[0]["active"] = True; _render_steps(step_ph, steps)
+                elapsed = time.time() - backup_start_time
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20)}")
+                
                 posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
                 for post in posts:
                     post["images"] = extract_image_urls(post)
                 save_json(posts, "posts")
                 steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(20, text=f"Fetched {len(posts)} posts")
+                
+                elapsed = time.time() - backup_start_time
+                overall.progress(20, text=f"✅ Fetched {len(posts)} posts")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20)}")
 
                 steps[1]["active"] = True; _render_steps(step_ph, steps)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -879,10 +1007,15 @@ else:
                             post["context_caption"] = "caption failed"
                         done_count += 1
                         pct = 20 + int(25 * (done_count / total))
-                        overall.progress(pct, text=f"Processing images & captions… ({done_count}/{total})")
+                        elapsed = time.time() - backup_start_time
+                        remaining = estimate_remaining_time(elapsed, pct)
+                        overall.progress(pct, text=f"🖼️ Processing images & captions… ({done_count}/{total})")
+                        time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {remaining}")
 
                 steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(45, text="Images & captions processed (this step can take a few minutes)")
+                elapsed = time.time() - backup_start_time
+                overall.progress(45, text="✅ Images & captions processed")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45)}")
 
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
                 save_json(posts, "posts+cap")
@@ -893,7 +1026,9 @@ else:
                 summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts)}
                 save_json(summary, "summary")
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(60, text="Files prepared")
+                elapsed = time.time() - backup_start_time
+                overall.progress(60, text="✅ Files prepared")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60)}")
 
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
                 upload_folder(BACKUP_DIR, folder_prefix)
@@ -928,7 +1063,9 @@ else:
                     st.info("The background worker is still generating the summary. It will appear shortly in your results folder.")
 
                 steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(80, text="Uploaded backup folder")
+                elapsed = time.time() - backup_start_time
+                overall.progress(80, text="✅ Uploaded backup folder")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80)}")
 
                 steps[4]["active"] = True; _render_steps(step_ph, steps)
                 zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
@@ -936,13 +1073,17 @@ else:
                     container = blob_service_client.get_container_client(CONTAINER)
                     container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
                 steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(90, text="ZIP uploaded")
+                elapsed = time.time() - backup_start_time
+                overall.progress(90, text="✅ ZIP uploaded")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90)}")
 
                 steps[5]["active"] = True; _render_steps(step_ph, steps)
                 shutil.rmtree(BACKUP_DIR)
                 BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
                 steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
-                overall.progress(95, text="Cleanup complete")
+                elapsed = time.time() - backup_start_time
+                overall.progress(95, text="✅ Cleanup complete")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 95)}")
 
                 cache_file = ensure_cache_dir() / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
                 latest_backup = {
@@ -955,9 +1096,11 @@ else:
                 with open(cache_file, "w", encoding="utf-8") as f:
                     json.dump({"fb_token": token, "latest_backup": latest_backup, "new_backup_done": True}, f, indent=2)
 
-                overall.progress(100, text="Backup complete! 🎉")
-                status.update(label="Backup complete! 🎉", state="complete")
-                st.toast("✅ Backup complete! Your scrapbook is ready to preview.", icon="✅")
+                total_time = time.time() - backup_start_time
+                overall.progress(100, text="🎉 Backup complete!")
+                time_estimate_ph.caption(f"⏱️ Total time: {int(total_time)}s")
+                status.update(label="🎉 Backup complete!", state="complete")
+                st.toast("🎉 Backup complete! Your scrapbook is ready to preview.", icon="🎉")
 
             st.session_state.update({
                 "fb_token": token,
@@ -1037,26 +1180,41 @@ if backups:
                                 use_container_width=True,
                             )
                         else:
-                            # Fallback: stream bytes via Streamlit
-                            data = container_client.get_blob_client(zip_blob_path).download_blob().readall()
-                            st.download_button(
-                                "📥 Download Backup",
-                                data=data,
-                                file_name=download_name,
-                                mime="application/zip",
-                                use_container_width=True,
-                                key=f"dl_{safe_id}",
-                            )
+                            # Fallback: stream bytes via Streamlit with progress
+                            progress_ph = st.empty()
+                            blob_client = container_client.get_blob_client(zip_blob_path)
+                            data = download_with_progress(blob_client, download_name, progress_ph)
+                            
+                            if data:
+                                progress_ph.empty()  # Clear progress bar
+                                st.download_button(
+                                    "📥 Download Backup",
+                                    data=data,
+                                    file_name=download_name,
+                                    mime="application/zip",
+                                    use_container_width=True,
+                                    key=f"dl_{safe_id}",
+                                )
 
                     else:
                         # No .zip in storage yet — zip the JSON on the fly so the user still gets a .zip
                         posts_bc = container_client.get_blob_client(posts_blob_path)
                         if posts_bc.exists():
+                            # Show progress for JSON download and ZIP creation
+                            progress_ph = st.empty()
+                            progress_ph.progress(0, text="📥 Downloading backup data...")
+                            
                             raw = posts_bc.download_blob().readall()
+                            progress_ph.progress(50, text="📦 Creating ZIP file...")
+                            
                             mem = BytesIO()
                             with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as zf:
                                 zf.writestr("posts+cap.json", raw)
                             mem.seek(0)
+                            
+                            progress_ph.progress(100, text="✅ Ready for download!")
+                            progress_ph.empty()  # Clear progress bar
+                            
                             st.download_button(
                                 "📥 Download Backup",
                                 data=mem.getvalue(),
