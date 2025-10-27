@@ -63,13 +63,35 @@ def ensure_cache_dir():
     cache_dir.mkdir(exist_ok=True)
     return cache_dir
 
-def estimate_remaining_time(elapsed_time, progress_percent):
-    """Estimate remaining time based on elapsed time and progress percentage."""
+def estimate_remaining_time(elapsed_time, progress_percent, step_name=""):
+    """Estimate remaining time based on elapsed time, progress percentage, and step complexity."""
     if progress_percent <= 0:
         return "calculating..."
     
+    # Base estimation
     total_estimated_time = elapsed_time / (progress_percent / 100)
     remaining_time = total_estimated_time - elapsed_time
+    
+    # Adjust based on step complexity and typical durations
+    step_adjustments = {
+        "Fetched posts": 1.0,  # Usually fast
+        "Processed posts & captions": 2.5,  # Image processing takes time
+        "Files prepared": 1.0,  # Usually fast
+        "Uploaded backup folder": 3.0,  # Network upload can be slow
+        "ZIP uploaded": 2.0,  # ZIP creation and upload
+        "Cleanup complete": 0.5,  # Very fast
+    }
+    
+    # Apply step-specific adjustment
+    adjustment_factor = step_adjustments.get(step_name, 1.5)
+    remaining_time *= adjustment_factor
+    
+    # Add minimum time buffer for remaining steps
+    remaining_steps = max(0, 6 - int(progress_percent / 20))  # Approximate remaining steps
+    remaining_time += remaining_steps * 10  # Add 10s per remaining step
+    
+    # Cap the estimation to be reasonable
+    remaining_time = min(remaining_time, 1800)  # Max 30 minutes
     
     if remaining_time < 60:
         return f"{int(remaining_time)}s"
@@ -964,7 +986,7 @@ else:
 
                 steps[0]["active"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
                 
                 posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
                 for post in posts:
@@ -974,7 +996,7 @@ else:
                 
                 elapsed = time.time() - backup_start_time
                 overall.progress(20, text=f"✅ Fetched {len(posts)} posts")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
 
                 steps[1]["active"] = True; _render_steps(step_ph, steps)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -1008,14 +1030,14 @@ else:
                         done_count += 1
                         pct = 20 + int(25 * (done_count / total))
                         elapsed = time.time() - backup_start_time
-                        remaining = estimate_remaining_time(elapsed, pct)
+                        remaining = estimate_remaining_time(elapsed, pct, 'Processed posts & captions')
                         overall.progress(pct, text=f"🖼️ Processing images & captions… ({done_count}/{total})")
                         time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {remaining}")
 
                 steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(45, text="✅ Images & captions processed")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45, 'Processed posts & captions')}")
 
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
                 save_json(posts, "posts+cap")
@@ -1028,7 +1050,7 @@ else:
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(60, text="✅ Files prepared")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60, 'Files prepared')}")
 
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
                 upload_folder(BACKUP_DIR, folder_prefix)
@@ -1065,7 +1087,7 @@ else:
                 steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(80, text="✅ Uploaded backup folder")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80, 'Uploaded backup folder')}")
 
                 steps[4]["active"] = True; _render_steps(step_ph, steps)
                 zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
@@ -1075,7 +1097,7 @@ else:
                 steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(90, text="✅ ZIP uploaded")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90, 'ZIP uploaded')}")
 
                 steps[5]["active"] = True; _render_steps(step_ph, steps)
                 shutil.rmtree(BACKUP_DIR)
@@ -1083,7 +1105,7 @@ else:
                 steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(95, text="✅ Cleanup complete")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 95)}")
+                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 95, 'Cleanup complete')}")
 
                 cache_file = ensure_cache_dir() / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
                 latest_backup = {
