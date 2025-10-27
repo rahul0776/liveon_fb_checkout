@@ -59,7 +59,7 @@ if "fb_token" not in st.session_state:
 # Stripe config
 STRIPE_SECRET_KEY = _get_secret("STRIPE_SECRET_KEY")
 RAW_PRICE_OR_PRODUCT_ID = _get_secret("STRIPE_PRICE_ID", "price_1234567890placeholder")
-SUCCESS_URL = _get_secret("STRIPE_SUCCESS_URL", "http://localhost:8501/success")
+SUCCESS_URL = _get_secret("STRIPE_SUCCESS_URL", "http://localhost:8501/Projects")
 CANCEL_URL  = _get_secret("STRIPE_CANCEL_URL",  "http://localhost:8501/cancel")
 
 BILLING_READY = bool(STRIPE_SECRET_KEY)

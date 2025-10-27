@@ -16,6 +16,7 @@ import time
 from io import BytesIO
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from datetime import timedelta
+import stripe
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 SHOW_MEMORIES_BUTTON = str(
@@ -137,6 +138,20 @@ if get_blob_service_client() is None:
 blob_service_client = get_blob_service_client()
 container_client = blob_service_client.get_container_client("backup")
 
+# ---------------------------
+# Stripe Configuration
+# ---------------------------
+def _get_secret(name: str, default: str | None = None) -> str | None:
+    try:
+        return st.secrets[name]
+    except Exception:
+        return os.environ.get(name, default)
+
+STRIPE_SECRET_KEY = _get_secret("STRIPE_SECRET_KEY")
+BILLING_READY = bool(STRIPE_SECRET_KEY)
+if BILLING_READY:
+    stripe.api_key = STRIPE_SECRET_KEY
+
 
 # ---------------------------------------
 # Fb profile (ensures name/id in session)
@@ -177,6 +192,74 @@ missing_keys = [k for k in ["fb_id", "fb_name", "fb_token"] if not st.session_st
 if missing_keys:
     st.warning(f"⚠️ Missing session keys: {missing_keys}")
     st.stop()
+
+# ---------------------------
+# Stripe Payment Return Handler
+# ---------------------------
+def handle_stripe_return():
+    """Handle Stripe payment return in Projects.py instead of separate success page."""
+    qp = st.query_params
+    session_id = qp.get("session_id")
+    if isinstance(session_id, list):
+        session_id = session_id[0]
+
+    if BILLING_READY and session_id:
+        try:
+            sess = stripe.checkout.Session.retrieve(session_id)
+        except stripe.error.StripeError as e:
+            st.error(f"Stripe API error: {e}")
+            return False
+        except Exception as e:
+            st.error(f"Unexpected error retrieving payment session: {e}")
+            return False
+        
+        if (sess.get("payment_status") or "").lower() == "paid":
+            md = sess.get("metadata") or {}
+            blob_path = md.get("blob") or qp.get("blob") or ""
+            backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+
+            if not backup_prefix:
+                st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
+                return False
+            else:
+                _write_entitlements(backup_prefix, sess)
+                st.success("✅ Payment confirmed — Memories unlocked for this backup!")
+                st.session_state["selected_backup"] = backup_prefix
+                return True
+        else:
+            payment_status = sess.get("payment_status", "unknown")
+            if payment_status == "unpaid":
+                st.warning("Payment was not completed. Please try again or contact support if you were charged.")
+            elif payment_status == "no_payment_required":
+                st.info("No payment was required for this session.")
+            else:
+                st.warning(f"Payment status is '{payment_status}'. Please contact support if you were charged.")
+            return False
+    return False
+
+def _backup_prefix_from_blob_path(blob_path: str) -> str:
+    """Extract backup prefix from blob path."""
+    return str(blob_path).rsplit("/", 1)[0].strip("/")
+
+def _write_entitlements(prefix: str, session: dict) -> None:
+    """Write entitlements.json and marker files for paid backup."""
+    ent = {
+        "memories": True,
+        "download": True,
+        "paid": True,
+        "paid_at": datetime.now(timezone.utc).isoformat(),
+        "checkout_id": session.get("id"),
+        "amount": (session.get("amount_total") or 0) / 100.0,
+        "currency": session.get("currency"),
+        "fb_id": (session.get("metadata") or {}).get("fb_id"),
+        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+    }
+    bc = container_client.get_blob_client(f"{prefix}/entitlements.json")
+    bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
+    
+    # markers (zero-byte files are fine)
+    container_client.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
+    container_client.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)
 
 
 fb_id = st.session_state["fb_id"]
@@ -267,6 +350,10 @@ button[data-testid="baseButton-secondary"].danger:hover{
 </style>
 """, unsafe_allow_html=True)
 
+
+# Handle Stripe return after session state is initialized
+if handle_stripe_return():
+    st.rerun()
 
 st.markdown(f"""
 <div class="header">
