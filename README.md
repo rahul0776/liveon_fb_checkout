@@ -18,7 +18,6 @@ A secure, user-friendly web application for backing up Facebook posts, photos, a
 
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
-- [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Technologies Used](#technologies-used)
 - [Security](#security)
@@ -48,36 +47,6 @@ A secure, user-friendly web application for backing up Facebook posts, photos, a
   - Azure Blob Storage container named `backup`
 - Facebook Developer account with an app configured for OAuth
 - Stripe account (test or live keys)
-
-## ⚙️ Configuration
-
-### 1. Set up Facebook App
-
-1. Go to [Facebook Developers](https://developers.facebook.com/)
-2. Create a new app or use an existing one
-3. Add "Facebook Login" product
-4. Configure OAuth redirect URIs:
-   - Development: `http://localhost:8501`
-   - Production: `https://yourdomain.com`
-5. Note your App ID and App Secret
-
-### 2. Set up Azure
-
-**Azure Blob Storage:**
-1. Create a storage account
-2. Create a container named `backup`
-3. Copy the connection string
-
-**Azure Functions:**
-1. Deploy your backend API to Azure Functions
-2. Note the function app URL
-
-### 3. Set up Stripe
-
-1. Go to [Stripe Dashboard](https://dashboard.stripe.com/)
-2. Get your API keys (test or live)
-3. Configure webhook endpoints if needed
-
 
 ## 📁 Project Structure
 
