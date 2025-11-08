@@ -70,7 +70,7 @@ except KeyError as e:
     st.error(f"Missing secret: {e}. Add it in Streamlit → Settings → Secrets.")
     st.stop()
 
-SCOPES = "email,public_profile,user_posts"
+SCOPES = "public_profile,user_posts"
 
 # ── Helpers ────────────────────────────────────────────────
 def build_auth_url() -> str:
