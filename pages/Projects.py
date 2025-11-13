@@ -4,6 +4,7 @@
 import streamlit as st
 import os
 import json
+import logging
 from datetime import datetime, timezone
 from pandas import DataFrame
 from azure.storage.blob import BlobServiceClient
@@ -28,6 +29,25 @@ st.set_page_config(
     page_icon="📚",
     initial_sidebar_state="collapsed"
 )
+
+logger = logging.getLogger("liveon.app")
+logger.setLevel(logging.INFO)
+
+
+def log_event(event_type: str, success: bool, *, meta_user_id: str | None = None, **fields) -> None:
+    """Structured logging helper for security/audit events."""
+    try:
+        payload = {
+            "event_type": event_type,
+            "meta_user_id": meta_user_id or str(st.session_state.get("fb_id") or ""),
+            "success": bool(success),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if fields:
+            payload["details"] = {k: v for k, v in fields.items() if v is not None}
+        logger.info("liveon_event %s", json.dumps(payload, default=str))
+    except Exception as exc:
+        logger.warning("log_event_error %s %s", event_type, exc)
 try:
     p = Path("cache") / "session_cache.json"
     if p.exists():
@@ -283,12 +303,26 @@ def handle_stripe_return():
                 st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
                 return False
             else:
+                log_event(
+                    "stripe_payment_success",
+                    True,
+                    meta_user_id=md.get("fb_id"),
+                    backup_prefix=backup_prefix,
+                    session_id=sess.get("id"),
+                )
                 _write_entitlements(backup_prefix, sess)
                 st.success("✅ Payment confirmed — Memories unlocked for this backup!")
                 st.session_state["selected_backup"] = backup_prefix
                 return True
         else:
             payment_status = sess.get("payment_status", "unknown")
+            log_event(
+                "stripe_payment_status",
+                False,
+                meta_user_id=(sess.get("metadata") or {}).get("fb_id"),
+                session_id=sess.get("id"),
+                status=payment_status,
+            )
             if payment_status == "unpaid":
                 st.warning("Payment was not completed. Please try again or contact support if you were charged.")
             elif payment_status == "no_payment_required":
@@ -321,6 +355,13 @@ def _write_entitlements(prefix: str, session: dict) -> None:
     # markers (zero-byte files are fine)
     container_client.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
     container_client.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)
+    log_event(
+        "entitlements_written",
+        True,
+        meta_user_id=ent.get("fb_id"),
+        backup_prefix=prefix,
+        checkout_id=ent.get("checkout_id"),
+    )
 
 
 fb_id = st.session_state["fb_id"]
@@ -729,8 +770,21 @@ def delete_backup_prefix(prefix: str):
             except Exception:
                 pass
 
+        log_event(
+            "backup_deleted",
+            True,
+            meta_user_id=st.session_state.get("fb_id"),
+            backup_prefix=prefix,
+        )
         st.toast(f"🗑️ Deleted {prefix}", icon="🗑️")
     except Exception as e:
+        log_event(
+            "backup_deleted",
+            False,
+            meta_user_id=st.session_state.get("fb_id"),
+            backup_prefix=prefix,
+            error=str(e),
+        )
         st.error(f"Delete failed: {e}")
 
 # ---------- Payment / entitlement helpers ----------
@@ -963,6 +1017,12 @@ else:
         if st.button("⬇️ Start My Backup", disabled=start_disabled):
             st.session_state["backup_running"] = True
             backup_start_time = time.time()
+            log_event(
+                "backup_start_requested",
+                True,
+                meta_user_id=fb_id_val,
+                backup_prefix=folder_prefix,
+            )
 
             # Enhanced toast notification
             st.toast("🚀 Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
@@ -1121,6 +1181,14 @@ else:
                 total_time = time.time() - backup_start_time
                 overall.progress(100, text="🎉 Backup complete!")
                 time_estimate_ph.caption(f"⏱️ Total time: {int(total_time)}s")
+                log_event(
+                    "backup_completed",
+                    True,
+                    meta_user_id=fb_id_val,
+                    backup_prefix=folder_prefix,
+                    posts=len(posts),
+                    total_seconds=int(total_time),
+                )
                 status.update(label="🎉 Backup complete!", state="complete")
                 st.toast("🎉 Backup complete! Your scrapbook is ready to preview.", icon="🎉")
 
@@ -1252,6 +1320,13 @@ if backups:
 
             else:
                 if st.button("📥 Download the Backup $9.99", key=f"pay_{safe_id}", use_container_width=True):
+                    log_event(
+                        "stripe_checkout_requested",
+                        True,
+                        meta_user_id=st.session_state.get("fb_id"),
+                        backup_prefix=backup["id"],
+                        blob_path=blob_for_checkout,
+                    )
                     st.session_state["pending_download"] = {
                         "blob_path": blob_for_checkout,
                         "file_name": download_name,
