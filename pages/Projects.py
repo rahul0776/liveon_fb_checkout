@@ -32,6 +32,11 @@ st.set_page_config(
 
 logger = logging.getLogger("liveon.app")
 logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+logger.propagate = False
 
 
 def log_event(event_type: str, success: bool, *, meta_user_id: str | None = None, **fields) -> None:
