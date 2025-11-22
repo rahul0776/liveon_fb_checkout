@@ -546,25 +546,51 @@ if "fb_token" not in st.session_state:
 
 # ── Check for Posts Permission (Required for Storybook) ─────────────────────────────
 def check_posts_permission(token: str) -> bool:
-    """Check if the access token has user_posts permission."""
+    """Check if the access token has user_posts permission using debug token endpoint."""
     try:
-        # Try to access posts endpoint - if we get data or a specific error, we know the permission status
+        # Method 1: Use Facebook's debug token endpoint to check actual permissions
+        app_access_token = f"{st.secrets['FB_CLIENT_ID']}|{st.secrets['FB_CLIENT_SECRET']}"
+        response = requests.get(
+            f"https://graph.facebook.com/debug_token",
+            params={
+                "input_token": token,
+                "access_token": app_access_token
+            },
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if "data" in data:
+                scopes = data.get("data", {}).get("scopes", [])
+                # Check if user_posts is in the granted scopes
+                has_posts = "user_posts" in scopes
+                return has_posts
+    except Exception as e:
+        pass  # Fall through to fallback method
+    
+    # Fallback Method 2: Try to access posts endpoint directly
+    try:
         response = requests.get(
             f"https://graph.facebook.com/me/posts?limit=1&access_token={token}",
             timeout=5
         )
         if response.status_code == 200:
+            # Successfully accessed posts - permission exists
             return True
         # Check for permission error
         data = response.json()
         if "error" in data:
-            error_code = data.get("error", {}).get("code", 0)
-            # Error code 200 = permission denied
-            if error_code == 200:
+            error = data.get("error", {})
+            error_code = error.get("code", 0)
+            error_type = error.get("type", "")
+            # Error code 200 or "OAuthException" with "permission denied" = no permission
+            if error_code == 200 or (error_type == "OAuthException" and "permission" in error.get("message", "").lower()):
                 return False
-        return False
     except Exception:
-        return False
+        pass
+    
+    # If we can't determine, assume no permission (safer for App Review)
+    return False
 
 def build_posts_auth_url() -> str:
     """Build OAuth URL for requesting posts permission."""
@@ -597,7 +623,27 @@ def build_posts_auth_url() -> str:
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
 
 # Check if user has posts permission
-has_posts_permission = check_posts_permission(st.session_state["fb_token"])
+has_posts_permission = False
+try:
+    has_posts_permission = check_posts_permission(st.session_state["fb_token"])
+except Exception as e:
+    # If check fails, assume no permission (safer for App Review)
+    # This ensures we always show the permission request UI if we can't verify
+    has_posts_permission = False
+
+# Debug: Check if we should force permission request (for App Review compliance)
+# Even if user has posts permission, we might want to show the flow for new logins
+# But for now, we'll only request if they don't have it
+force_permission_check = st.session_state.get("force_posts_permission_check", False)
+
+# For testing: Add a button to force permission check
+if st.session_state.get("show_debug", False):
+    if st.button("🔍 Debug: Check Posts Permission"):
+        try:
+            result = check_posts_permission(st.session_state["fb_token"])
+            st.info(f"Posts permission check result: {result}")
+        except Exception as e:
+            st.error(f"Error checking permission: {e}")
 
 # Handle OAuth return for posts permission
 qp = st.query_params
@@ -632,8 +678,15 @@ if qp.get("return_to") == "memories" and qp.get("code"):
     except Exception as e:
         st.error(f"Failed to update permissions: {e}")
 
-# If no posts permission, show permission request UI
-if not has_posts_permission:
+# Show permission request UI if user doesn't have posts permission
+# For App Review: This demonstrates the two-stage permission flow
+# If user already has permission (from old login), they can proceed directly
+# 
+# Test mode: Add ?test_permission=1 to URL to force permission request UI
+test_mode = st.query_params.get("test_permission") == "1"
+show_permission_ui = not has_posts_permission or test_mode
+
+if show_permission_ui:
     st.markdown("""
     <div class="card" style="text-align:center; padding:40px;">
         <h2>📘 Create Your Storybook</h2>
