@@ -544,6 +544,120 @@ if "fb_token" not in st.session_state:
     st.warning("Please login with Facebook first.")
     st.stop()
 
+# ── Check for Posts Permission (Required for Storybook) ─────────────────────────────
+def check_posts_permission(token: str) -> bool:
+    """Check if the access token has user_posts permission."""
+    try:
+        # Try to access posts endpoint - if we get data or a specific error, we know the permission status
+        response = requests.get(
+            f"https://graph.facebook.com/me/posts?limit=1&access_token={token}",
+            timeout=5
+        )
+        if response.status_code == 200:
+            return True
+        # Check for permission error
+        data = response.json()
+        if "error" in data:
+            error_code = data.get("error", {}).get("code", 0)
+            # Error code 200 = permission denied
+            if error_code == 200:
+                return False
+        return False
+    except Exception:
+        return False
+
+def build_posts_auth_url() -> str:
+    """Build OAuth URL for requesting posts permission."""
+    from urllib.parse import urlencode
+    import hmac, hashlib, json, base64, time, secrets as pysecrets
+    
+    def _b64e(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode().rstrip("=")
+    
+    def make_state() -> str:
+        payload = {"ts": int(time.time()), "nonce": pysecrets.token_urlsafe(16)}
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        sig = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
+        return _b64e(raw) + "." + _b64e(sig)
+    
+    CLIENT_ID = st.secrets["FB_CLIENT_ID"]
+    REDIRECT_URI = st.secrets["FB_REDIRECT_URI"]
+    
+    # Request additional permission: user_posts
+    scopes = "public_profile,user_photos,user_posts"
+    
+    params = {
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI + "?return_to=memories",
+        "scope": scopes,
+        "response_type": "code",
+        "state": make_state(),
+        "auth_type": "rerequest",  # Force re-request even if previously denied
+    }
+    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+
+# Check if user has posts permission
+has_posts_permission = check_posts_permission(st.session_state["fb_token"])
+
+# Handle OAuth return for posts permission
+qp = st.query_params
+if qp.get("return_to") == "memories" and qp.get("code"):
+    # User just granted posts permission, refresh token
+    code = qp.get("code")
+    if isinstance(code, list):
+        code = code[0]
+    
+    try:
+        response = requests.get(
+            "https://graph.facebook.com/v18.0/oauth/access_token",
+            params={
+                "client_id": st.secrets["FB_CLIENT_ID"],
+                "redirect_uri": st.secrets["FB_REDIRECT_URI"] + "?return_to=memories",
+                "client_secret": st.secrets["FB_CLIENT_SECRET"],
+                "code": code,
+            },
+            timeout=10,
+        )
+        if response.status_code == 200:
+            new_token = response.json().get("access_token")
+            if new_token:
+                st.session_state["fb_token"] = new_token
+                st.success("✅ Posts permission granted! You can now create your storybook.")
+                # Clear query params
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.rerun()
+    except Exception as e:
+        st.error(f"Failed to update permissions: {e}")
+
+# If no posts permission, show permission request UI
+if not has_posts_permission:
+    st.markdown("""
+    <div class="card" style="text-align:center; padding:40px;">
+        <h2>📘 Create Your Storybook</h2>
+        <p style="font-size:1.1rem; margin:20px 0;">
+            To create your personalized Facebook storybook, we need access to your posts and photos.
+        </p>
+        <p style="color:var(--muted); margin-bottom:30px;">
+            This allows us to organize your memories into beautiful chapters and create a meaningful storybook for you.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    auth_url = build_posts_auth_url()
+    st.markdown(f"""
+    <div style="text-align:center; margin:20px 0;">
+        <a href="{auth_url}" class="fb-button" style="display:inline-block; padding:14px 28px; font-size:18px;">
+            🔐 Grant Posts Permission to Create Storybook
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.info("💡 **Why we need this:** Your posts contain the stories and context that make your storybook meaningful. We only use this data to create your personalized storybook.")
+    st.stop()
+
 # --- Session defaults ---
 if "undo_stack" not in st.session_state:
     st.session_state["undo_stack"] = {}
@@ -2240,6 +2354,53 @@ for post in posts:
 # ── PRIMARY ACTION ────────────────────────────────────────────────────────────
 if "classification" not in st.session_state:
     if st.button("📘 Generate Scrapbook",use_container_width=True):
+        # Fetch posts from API (since initial backup only has photos)
+        # This is needed to create the storybook with posts data
+        st.info("📥 Fetching your posts to create your storybook...")
+        
+        def fetch_posts_from_api(token: str, max_pages: int = 50):
+            """Fetch posts from Facebook Graph API."""
+            url = f"https://graph.facebook.com/me/posts?fields=id,message,created_time,full_picture,attachments{{media}}&limit=100&access_token={token}"
+            all_posts = []
+            pages = 0
+            
+            while url and pages < max_pages:
+                try:
+                    response = requests.get(url, timeout=20)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    if "error" in data:
+                        st.error(f"Error fetching posts: {data['error'].get('message')}")
+                        break
+                    
+                    all_posts.extend(data.get("data", []))
+                    url = data.get("paging", {}).get("next")
+                    pages += 1
+                except Exception as e:
+                    st.error(f"Error fetching posts: {e}")
+                    break
+            
+            return all_posts
+        
+        # Fetch posts from API
+        api_posts = fetch_posts_from_api(st.session_state["fb_token"])
+        
+        if not api_posts:
+            st.error("❌ Could not fetch posts. Please ensure you have granted posts permission.")
+            st.stop()
+        
+        # Merge API posts with existing posts from blob (if any)
+        # API posts take precedence
+        existing_posts = {p.get("id"): p for p in posts if p.get("id")}
+        for api_post in api_posts:
+            existing_posts[api_post.get("id")] = api_post
+        
+        # Update posts list with merged data
+        posts = list(existing_posts.values())
+        st.session_state["all_posts_raw"] = posts
+        st.success(f"✅ Fetched {len(posts)} posts for your storybook")
+        
         # 1️⃣ Evaluate personality & life themes
         import re
         user_name = "This person"

@@ -70,18 +70,42 @@ except KeyError as e:
     st.error(f"Missing secret: {e}. Add it in Streamlit → Settings → Secrets.")
     st.stop()
 
-SCOPES = "public_profile,user_posts"
+# Initial login: Only request basic profile and photos (NO posts yet)
+# Posts permission will be requested later when user wants to create storybook
+INITIAL_SCOPES = "public_profile,user_photos"
+POSTS_SCOPES = "public_profile,user_photos,user_posts"  # Additional permission for storybook
+
+# Default to initial scopes
+SCOPES = INITIAL_SCOPES
 
 # ── Helpers ────────────────────────────────────────────────
-def build_auth_url() -> str:
+def build_auth_url(additional_scopes="") -> str:
+    """
+    Build OAuth URL for Facebook login.
+    
+    Args:
+        additional_scopes: Additional scopes to request (e.g., "user_posts" for storybook creation)
+    """
+    scopes = INITIAL_SCOPES
+    if additional_scopes:
+        # Add additional scopes if provided
+        scopes = f"{INITIAL_SCOPES},{additional_scopes}"
+    
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
-        "scope": SCOPES,
+        "scope": scopes,
         "response_type": "code",
         "state": make_state(),         
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+
+def build_posts_auth_url() -> str:
+    """
+    Build OAuth URL specifically for requesting posts permission.
+    This is used when user wants to create a storybook and needs posts access.
+    """
+    return build_auth_url("user_posts")
 
 
 def exchange_code_for_token(code: str) -> str | None:
@@ -252,11 +276,21 @@ elif code:
         if access_token:
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
-            st.success("✅ Login successful! Redirecting…")
-            try: st.query_params.clear()
-            except Exception: pass
-            time.sleep(0.8)
-            st.switch_page(DEST_PAGE)
+            
+            # Check if this is a return from memories permission request
+            return_to = get_qparam("return_to")
+            if return_to == "memories":
+                st.success("✅ Permission granted! Redirecting to Memories…")
+                try: st.query_params.clear()
+                except Exception: pass
+                time.sleep(0.8)
+                st.switch_page("pages/FbMemories.py")
+            else:
+                st.success("✅ Login successful! Redirecting…")
+                try: st.query_params.clear()
+                except Exception: pass
+                time.sleep(0.8)
+                st.switch_page(DEST_PAGE)
         else:
             st.error("❌ Could not sign you in. Please try again.")
 
@@ -269,9 +303,9 @@ else:
     auth_url = build_auth_url()
     st.markdown(f"""
         <div class="hero-box">
-            <h1>Let's Back Up Your <span class="accent">Facebook Memories</span></h1>
-            <p>Link your Facebook account to get started—we’ll securely back up your posts, photos, and more.</p>
+            <h1>Let's Back Up Your <span class="accent">Facebook Photos</span></h1>
+            <p>Link your Facebook account to get started—we'll securely back up your photos and create a downloadable archive.</p>
             <a href="{auth_url}" class="fb-button">🔗 Link Facebook Account</a>
-            <div class="subtext">Already linked Facebook? <strong>Start New Backup</strong></div>
+            <div class="subtext">We'll request posts permission later when you create your storybook.</div>
         </div>
     """, unsafe_allow_html=True)

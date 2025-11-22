@@ -979,12 +979,13 @@ if not st.session_state["show_creator"]:
                 st.rerun()   # CHANGED
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.header("📦 Create Facebook Backup")
+    st.header("📦 Create Facebook Photo Backup")
     # Clear upfront warning about duration
     st.info(
         "Heads up: Creating your backup can take **several minutes**. "
-        "Please keep this tab open; you’ll see live progress below."
+        "Please keep this tab open; you'll see live progress below."
     )
+    st.caption("📸 **Initial backup includes your photos.** Posts permission will be requested later when you create your storybook.")
 
     st.markdown("""<div class="instructions">
     <strong>How to create your backup:</strong>
@@ -1039,8 +1040,8 @@ else:
 
             with st.status("🔄 Working on your backup…", state="running", expanded=True) as status:
                 steps = [
-                    {"label": "Fetched posts", "done": False},
-                    {"label": "Processed posts & captions", "done": False},
+                    {"label": "Fetched photos", "done": False},
+                    {"label": "Processed photos & captions", "done": False},
                     {"label": "Files prepared", "done": False},
                     {"label": "Uploaded backup folder", "done": False},
                     {"label": "ZIP uploaded", "done": False},
@@ -1053,14 +1054,36 @@ else:
                 elapsed = time.time() - backup_start_time
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
                 
-                posts = fetch_data("posts", token, fields="id,message,created_time,full_picture,attachments{media}")
-                for post in posts:
-                    post["images"] = extract_image_urls(post)
+                # Stage 1: Fetch photos only (no posts permission needed yet)
+                # Photos are fetched from /me/photos endpoint
+                photos = fetch_data("photos", token, fields="id,created_time,images,name")
+                
+                # Convert photos to post-like format for compatibility
+                posts = []
+                for photo in photos:
+                    # Extract image URLs from photo
+                    image_urls = []
+                    if isinstance(photo.get("images"), list):
+                        # Get the largest image
+                        largest = max(photo.get("images", []), key=lambda x: x.get("width", 0) * x.get("height", 0), default={})
+                        if largest.get("source"):
+                            image_urls.append(largest["source"])
+                    
+                    if image_urls:
+                        posts.append({
+                            "id": photo.get("id"),
+                            "created_time": photo.get("created_time"),
+                            "message": photo.get("name", ""),
+                            "images": image_urls,
+                            "full_picture": image_urls[0] if image_urls else None,
+                            "is_photo": True  # Flag to indicate this came from photos, not posts
+                        })
+                
                 save_json(posts, "posts")
                 steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
                 
                 elapsed = time.time() - backup_start_time
-                overall.progress(20, text=f"✅ Fetched {len(posts)} posts")
+                overall.progress(20, text=f"✅ Fetched {len(posts)} photos")
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
 
                 steps[1]["active"] = True; _render_steps(step_ph, steps)
@@ -1110,7 +1133,7 @@ else:
                 save_json({"likes": []}, "likes.json")
                 save_json({"videos": []}, "videos.json")
                 save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json")
-                summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts)}
+                summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts), "photos": len(posts), "backup_type": "photos_only"}
                 save_json(summary, "summary")
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
