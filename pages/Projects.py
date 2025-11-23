@@ -1055,8 +1055,25 @@ else:
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
                 
                 # Stage 1: Fetch photos only (no posts permission needed yet)
-                # Photos are fetched from /me/photos endpoint
-                photos = fetch_data("photos", token, fields="id,created_time,images,name")
+                # Try photos/uploaded first (more reliable for user-uploaded photos)
+                photos = fetch_data("photos/uploaded", token, fields="id,created_time,images,name")
+                
+                # Fallback to regular photos endpoint if uploaded returns nothing
+                if len(photos) == 0:
+                    st.info("📸 No uploaded photos found, trying all photos...")
+                    photos = fetch_data("photos", token, fields="id,created_time,images,name")
+                
+                # Debug: Log photo fetch results
+                if DEBUG or len(photos) == 0:
+                    st.warning(f"📊 Debug: Fetched {len(photos)} photos from Facebook API")
+                    if len(photos) == 0:
+                        st.error("⚠️ No photos were returned from Facebook. This could be due to: 1) No photos in your account, 2) Missing permissions, or 3) API access issues.")
+                        log_event(
+                            "backup_no_photos_found",
+                            False,
+                            meta_user_id=fb_id_val,
+                            backup_prefix=folder_prefix,
+                        )
                 
                 # Convert photos to post-like format for compatibility
                 posts = []
