@@ -409,7 +409,7 @@ else:
         
         # We use a streamlit button here to trigger the state change
         # We style it to look like the link or just place it inside the box logic
-        col1, col2, col3 = st.columns([1, 2, 1])
+        col1, col2, col3 = st.columns([1.5, 1, 1.5])
         with col2:
             if st.button("🔗 Link Facebook Account", use_container_width=True, type="primary"):
                 show_modal()
