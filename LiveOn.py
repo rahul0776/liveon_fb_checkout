@@ -301,11 +301,67 @@ elif "fb_token" in st.session_state:
 
 else:
     auth_url = build_auth_url()
-    st.markdown(f"""
-        <div class="hero-box">
-            <h1>Let's Back Up Your <span class="accent">Facebook Photos</span></h1>
-            <p>Link your Facebook account to get started—we'll securely back up your photos and create a downloadable archive.</p>
-            <a href="{auth_url}" class="fb-button">🔗 Link Facebook Account</a>
-            <div class="subtext">We'll request posts permission later when you create your storybook.</div>
-        </div>
-    """, unsafe_allow_html=True)
+    
+    # Session state for showing the permission explanation modal/container
+    if "show_auth_modal" not in st.session_state:
+        st.session_state["show_auth_modal"] = False
+
+    def show_modal():
+        st.session_state["show_auth_modal"] = True
+
+    def hide_modal():
+        st.session_state["show_auth_modal"] = False
+
+    if st.session_state["show_auth_modal"]:
+        # Show the explanation "box"
+        st.markdown("""
+            <div class="hero-box">
+                <h2>🔒 Permission Request</h2>
+                <p style="margin-bottom: 20px;">
+                    To securely back up your photos, we need the following permissions:
+                </p>
+                <ul style="text-align: left; display: inline-block; margin-bottom: 20px; color: var(--muted);">
+                    <li><strong>Public Profile:</strong> To identify your account.</li>
+                    <li><strong>Photos:</strong> To back up your uploaded photos.</li>
+                </ul>
+                <p style="font-size: 0.9rem; color: var(--gold); margin-bottom: 24px;">
+                    ⚠️ We will <strong>NOT</strong> access your posts at this stage.
+                </p>
+                <div style="display: flex; gap: 12px; justify-content: center;">
+                    <a href="{auth_url}" class="fb-button">✅ Proceed to Facebook</a>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button onclick="parent.window.location.reload()" style="background:transparent; border:none; color:var(--muted); cursor:pointer; text-decoration:underline;">Cancel</button>
+                </div>
+            </div>
+        """.format(auth_url=auth_url), unsafe_allow_html=True)
+        
+        # Streamlit button for cancel (hidden but functional if we wanted pure python, 
+        # but the HTML button above with reload is a quick hack to reset state if JS allowed, 
+        # otherwise we use a streamlit button below for robustness)
+        if st.button("Cancel", type="secondary"):
+            hide_modal()
+            st.rerun()
+
+    else:
+        # Default Hero UI
+        st.markdown(f"""
+            <div class="hero-box">
+                <h1>Let's Back Up Your <span class="accent">Facebook Photos</span></h1>
+                <p>Link your Facebook account to get started—we'll securely back up your photos and create a downloadable archive.</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # We use a streamlit button here to trigger the state change
+        # We style it to look like the link or just place it inside the box logic
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔗 Link Facebook Account", use_container_width=True, type="primary"):
+                show_modal()
+                st.rerun()
+
+        st.markdown("""
+            <div class="hero-box" style="border:none; box-shadow:none; background:transparent; padding-top:0;">
+                <div class="subtext">We'll request posts permission later when you create your storybook.</div>
+            </div>
+        """, unsafe_allow_html=True)
