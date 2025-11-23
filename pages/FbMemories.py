@@ -2317,6 +2317,8 @@ try:
                 posts = fetch_posts_from_api(st.session_state["fb_token"])
                 if posts:
                     save_posts_to_blob(posts, blob_folder)
+                    # Clear cache so the next load sees the new data
+                    load_all_posts_from_blob.clear()
                     st.success(f"✅ Fetched {len(posts)} posts!")
                     st.rerun()
                 else:
