@@ -978,6 +978,40 @@ def load_all_posts_from_blob(container: str, folder: str) -> list[dict]:
 
     return list(posts_by_id.values())
 
+def fetch_posts_from_api(token: str, max_pages: int = 50) -> list[dict]:
+    """Fetch posts from Facebook Graph API."""
+    url = f"https://graph.facebook.com/me/posts?fields=id,message,created_time,full_picture,attachments{{media}}&limit=100&access_token={token}"
+    all_posts = []
+    pages = 0
+    
+    while url and pages < max_pages:
+        try:
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+            
+            if "error" in data:
+                st.error(f"Error fetching posts: {data['error'].get('message')}")
+                break
+            
+            all_posts.extend(data.get("data", []))
+            url = data.get("paging", {}).get("next")
+            pages += 1
+        except Exception as e:
+            st.error(f"Error fetching posts: {e}")
+            break
+    
+    return all_posts
+
+def save_posts_to_blob(posts: list[dict], blob_folder: str):
+    """Save fetched posts to Azure Blob Storage."""
+    try:
+        blob_path = f"{blob_folder}/posts+cap.json"
+        data = json.dumps(posts, indent=2, ensure_ascii=False)
+        container_client.get_blob_client(blob_path).upload_blob(data, overwrite=True)
+    except Exception as e:
+        st.error(f"Failed to save posts to storage: {e}")
+
 
 
 def call_function(endpoint:str, payload:dict, timeout:int=90):
@@ -2271,6 +2305,27 @@ with st.sidebar:
 st.caption("Loading your Facebook posts from Azure Blob Storage…")
 try:
     posts = load_all_posts_from_blob(CONTAINER, blob_folder)
+    
+    # 🆕 Auto-fetch if empty but permission exists
+    if not posts and has_posts_permission:
+        with st.spinner("📥 Fetching your posts from Facebook..."):
+            try:
+                # We need to define this helper or move it up. 
+                # Since we can't easily move the existing one without messing up line numbers, 
+                # I'll define a robust one here or use the one I'm about to add.
+                # Let's assume I added the helper above.
+                posts = fetch_posts_from_api(st.session_state["fb_token"])
+                if posts:
+                    save_posts_to_blob(posts, blob_folder)
+                    st.success(f"✅ Fetched {len(posts)} posts!")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ No posts found on your Facebook timeline.")
+                    st.stop()
+            except Exception as e:
+                st.error(f"Failed to fetch posts: {e}")
+                st.stop()
+
     if not posts:
         st.warning("⚠️ No posts found in blob storage. Upload some and try again.")
         st.stop()
