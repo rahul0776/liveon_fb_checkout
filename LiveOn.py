@@ -229,6 +229,50 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3{
 div[data-testid="stAlert"]{
   border:1px solid var(--line); background: rgba(255,255,255,.06);
 }
+
+/* Enhanced Primary Button Styling */
+.stButton > button[kind="primary"] {
+  background: linear-gradient(135deg, #F6C35D 0%, #F4B942 100%) !important;
+  color: var(--navy-900) !important;
+  font-weight: 800 !important;
+  font-size: 17px !important;
+  padding: 14px 32px !important;
+  border-radius: 12px !important;
+  border: none !important;
+  box-shadow: 0 6px 20px rgba(246, 195, 93, 0.35), 
+              0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.stButton > button[kind="primary"]::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: -100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent) !important;
+  transition: left 0.5s !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+  transform: translateY(-2px) scale(1.02) !important;
+  box-shadow: 0 8px 28px rgba(246, 195, 93, 0.45), 
+              0 4px 12px rgba(0, 0, 0, 0.2) !important;
+  background: linear-gradient(135deg, #F8CA6D 0%, #F6C152 100%) !important;
+}
+
+.stButton > button[kind="primary"]:hover::before {
+  left: 100% !important;
+}
+
+.stButton > button[kind="primary"]:active {
+  transform: translateY(0px) scale(0.98) !important;
+  box-shadow: 0 4px 12px rgba(246, 195, 93, 0.3) !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
