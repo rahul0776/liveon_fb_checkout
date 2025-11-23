@@ -650,12 +650,19 @@ def build_posts_auth_url() -> str:
     # Request additional permission: user_posts
     scopes = "public_profile,user_photos,user_posts"
     
+    # Capture current selection state to persist across redirect
+    extra_data = {"return_to": "memories"}
+    if st.session_state.get("selected_backup"):
+        extra_data["selected_backup"] = st.session_state["selected_backup"]
+    if st.session_state.get("selected_project"):
+        extra_data["selected_project"] = st.session_state["selected_project"]
+
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,  # Clean URI (no query params) to match whitelist
         "scope": scopes,
         "response_type": "code",
-        "state": make_state(extra_data={"return_to": "memories"}), # Pass intent in state
+        "state": make_state(extra_data=extra_data), # Pass intent and selection in state
         "auth_type": "rerequest",  # Force re-request even if previously denied
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)

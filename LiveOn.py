@@ -281,20 +281,25 @@ elif code:
         if access_token:
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
-            
             # Check if this is a return from memories permission request
             # Now we check the state payload instead of query param
             return_to = state_data.get("return_to")
             if return_to == "memories":
+                # Restore selection state if present
+                if state_data.get("selected_backup"):
+                    st.session_state["selected_backup"] = state_data["selected_backup"]
+                if state_data.get("selected_project"):
+                    st.session_state["selected_project"] = state_data["selected_project"]
+                    
                 st.success("✅ Permission granted! Redirecting to Memories…")
                 try: st.query_params.clear()
-                except Exception: pass
+                except: pass
                 time.sleep(0.8)
                 st.switch_page("pages/FbMemories.py")
             else:
                 st.success("✅ Login successful! Redirecting…")
                 try: st.query_params.clear()
-                except Exception: pass
+                except: pass
                 time.sleep(0.8)
                 st.switch_page(DEST_PAGE)
         else:
