@@ -505,23 +505,59 @@ def _unique_caption(raw: str, tries=2) -> str:
 
 
 
+# ── Session Restoration (Robust) ─────────────────────────────
+def qp_get(name, default=None):
+    try:
+        return st.query_params.get(name)
+    except Exception:
+        return st.experimental_get_query_params().get(name, [default])[0]
+
+def safe_token_hash(token: str) -> str:
+    return hashlib.md5(token.encode()).hexdigest()
+
 def restore_session():
-    """Restore session from cache if available"""
-    cache_file = "backup_cache.json"
-    if not all(key in st.session_state for key in ["fb_id", "fb_name", "fb_token"]):
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, "r") as f:
-                    cached = json.load(f)
-                    st.session_state.update({
-                        "fb_token": cached.get("fb_token"),
-                        "fb_id": cached.get("latest_backup", {}).get("user_id"), 
-                        "fb_name": cached.get("latest_backup", {}).get("name"),
-                        "latest_backup": cached.get("latest_backup"),
-                        "new_backup_done": cached.get("new_backup_done")
-                    })
-            except Exception as e:
-                st.error(f"Session restore error: {str(e)}")
+    """
+    Restore only from a per-user cache file identified by a URL query param (?cache=<hash>)
+    or from the exact file for the current in-memory token. Never scan all users' files.
+    """
+    if st.session_state.get("fb_token") and st.session_state.get("fb_id") and st.session_state.get("fb_name"):
+        return
+
+    cache_dir = Path("cache")
+    if not cache_dir.exists():
+        return
+
+    # 1) Prefer hash from URL
+    token_hash = qp_get("cache")
+    path = None
+    if token_hash:
+        cand = cache_dir / f"backup_cache_{token_hash}.json"
+        if cand.exists():
+            path = cand
+
+    # 2) If we already have a token in memory, try its exact file
+    if not path and st.session_state.get("fb_token"):
+        cand = cache_dir / f"backup_cache_{safe_token_hash(st.session_state['fb_token'])}.json"
+        if cand.exists():
+            path = cand
+
+    if not path:
+        return
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        token = data.get("fb_token")
+        if not token:
+            return
+
+        st.session_state["fb_token"] = token
+        latest = data.get("latest_backup") or {}
+        st.session_state["fb_id"] = str(latest.get("user_id") or "")
+        st.session_state["fb_name"] = latest.get("Name")
+        st.session_state["latest_backup"] = latest
+        st.session_state["new_backup_done"] = data.get("new_backup_done")
+    except Exception:
+        pass
 
 def persist_session():
     cache = {
@@ -2289,6 +2325,12 @@ def _build_pdf_cached(
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     advanced_mode = st.checkbox("Enable Advanced Mode (debug)", value=False)
+    
+    if advanced_mode:
+        if st.button("🧪 Test Permission UI"):
+            st.query_params["test_permission"] = "1"
+            st.rerun()
+            
     show_empty_chapters = st.checkbox("🧹 Hide Empty Chapters", value=True)
     hero_mode = st.checkbox("🎨 Enable Hero Mode")
 
