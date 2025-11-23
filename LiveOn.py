@@ -15,25 +15,29 @@ def _b64e(b: bytes) -> str:
 def _b64d(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * ((4 - len(s) % 4) % 4))
 
-def make_state() -> str:
+def make_state(extra_data: dict = None) -> str:
     """Create a signed, time-limited state token (no session needed)."""
     payload = {"ts": int(time.time()), "nonce": pysecrets.token_urlsafe(16)}
+    if extra_data:
+        payload.update(extra_data)
     raw = json.dumps(payload, separators=(",", ":")).encode()
     sig = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
     return _b64e(raw) + "." + _b64e(sig)
 
-def verify_state(s: str, max_age: int = 600) -> bool:
-    """Verify signature and max age (seconds)."""
+def verify_state(s: str, max_age: int = 600) -> dict | None:
+    """Verify signature and max age (seconds). Returns payload if valid, None otherwise."""
     try:
         raw_b64, sig_b64 = s.split(".", 1)
         raw = _b64d(raw_b64)
         expected = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
         if not hmac.compare_digest(expected, _b64d(sig_b64)):
-            return False
+            return None
         data = json.loads(raw.decode())
-        return int(time.time()) - int(data["ts"]) <= max_age
+        if int(time.time()) - int(data["ts"]) > max_age:
+            return None
+        return data
     except Exception:
-        return False
+        return None
 
 # ── Page config ─────────────────────────────────────────────
 st.set_page_config(
@@ -268,7 +272,8 @@ if error:
     st.query_params.clear()
 
 elif code:
-    if not returned_state or not verify_state(returned_state):
+    state_data = verify_state(returned_state)
+    if not returned_state or not state_data:
         st.error("Security check failed. Please start the login again.")
     else:
         st.info("🔄 Connecting to Facebook…")
@@ -278,7 +283,8 @@ elif code:
             st.session_state["token_issued_at"] = int(time.time())
             
             # Check if this is a return from memories permission request
-            return_to = get_qparam("return_to")
+            # Now we check the state payload instead of query param
+            return_to = state_data.get("return_to")
             if return_to == "memories":
                 st.success("✅ Permission granted! Redirecting to Memories…")
                 try: st.query_params.clear()

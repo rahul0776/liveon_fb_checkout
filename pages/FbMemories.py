@@ -636,8 +636,10 @@ def build_posts_auth_url() -> str:
     def _b64e(b: bytes) -> str:
         return base64.urlsafe_b64encode(b).decode().rstrip("=")
     
-    def make_state() -> str:
+    def make_state(extra_data: dict = None) -> str:
         payload = {"ts": int(time.time()), "nonce": pysecrets.token_urlsafe(16)}
+        if extra_data:
+            payload.update(extra_data)
         raw = json.dumps(payload, separators=(",", ":")).encode()
         sig = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
         return _b64e(raw) + "." + _b64e(sig)
@@ -650,10 +652,10 @@ def build_posts_auth_url() -> str:
     
     params = {
         "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI + "?return_to=memories",
+        "redirect_uri": REDIRECT_URI,  # Clean URI (no query params) to match whitelist
         "scope": scopes,
         "response_type": "code",
-        "state": make_state(),
+        "state": make_state(extra_data={"return_to": "memories"}), # Pass intent in state
         "auth_type": "rerequest",  # Force re-request even if previously denied
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
