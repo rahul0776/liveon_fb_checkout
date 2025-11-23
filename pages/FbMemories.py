@@ -556,21 +556,39 @@ def restore_session():
         st.session_state["fb_name"] = latest.get("Name")
         st.session_state["latest_backup"] = latest
         st.session_state["new_backup_done"] = data.get("new_backup_done")
+        
+        # Restore selection state
+        if data.get("selected_backup"):
+            st.session_state["selected_backup"] = data["selected_backup"]
+        if data.get("selected_project"):
+            st.session_state["selected_project"] = data["selected_project"]
     except Exception:
         pass
 
 def persist_session():
+    token = st.session_state.get("fb_token")
+    if not token:
+        return
+
+    cache_dir = Path("cache")
+    cache_dir.mkdir(exist_ok=True)
+    
     cache = {
-        "fb_token": st.session_state.get("fb_token"),
+        "fb_token": token,
         "latest_backup": st.session_state.get("latest_backup"),
         "new_backup_done": st.session_state.get("new_backup_done"),
+        "selected_backup": st.session_state.get("selected_backup"),
+        "selected_project": st.session_state.get("selected_project"),
     }
     if st.session_state.get("fb_id") or st.session_state.get("fb_name"):
         cache["latest_backup"] = cache.get("latest_backup", {}) | {
             "user_id": st.session_state.get("fb_id"),
             "name": st.session_state.get("fb_name"),
         }
-    with open("backup_cache.json", "w") as f:
+        
+    # Save to user-specific cache file
+    cache_file = cache_dir / f"backup_cache_{safe_token_hash(token)}.json"
+    with open(cache_file, "w") as f:
         json.dump(cache, f)
 
 
@@ -2997,24 +3015,6 @@ if "classification" in st.session_state:
             and st.session_state.get("_last_built_ck") == ck
         )
 
-    # Selected design label (only if chosen)
-    sel_map = {"polaroid":"Classic Polaroid","travel":"Travel Scrapbook","natural":"Natural Moodboard"}
-    if template:
-        st.caption(f"Selected design: **{sel_map.get(template, template)}**")
-    else:
-        st.caption("Choose a design to build your PDF.")
-
-
-    st.markdown('<div class="card" style="position:sticky; bottom:12px; z-index:5;">', unsafe_allow_html=True)
-    if ready_now:
-        st.download_button(
-            "📥 Download Scrapbook PDF",
-            data=st.session_state["pdf_bytes"],
-            file_name="facebook_scrapbook.pdf",
-            mime="application/pdf",
-            key="download_pdf_btn_ready",
-        )
-    else:
         if template and st.session_state.get("want_pdf"):
             st.caption("Rebuilding your PDF…")
         else:
