@@ -235,9 +235,9 @@ div[data-testid="stAlert"]{
   background: linear-gradient(135deg, #F6C35D 0%, #F4B942 100%) !important;
   color: var(--navy-900) !important;
   font-weight: 800 !important;
-  font-size: 17px !important;
-  padding: 14px 32px !important;
-  border-radius: 12px !important;
+  font-size: 15px !important;
+  padding: 11px 28px !important;
+  border-radius: 10px !important;
   border: none !important;
   box-shadow: 0 6px 20px rgba(246, 195, 93, 0.35), 
               0 2px 8px rgba(0, 0, 0, 0.15) !important;
