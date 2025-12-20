@@ -74,6 +74,19 @@ except KeyError as e:
     st.error(f"Missing secret: {e}. Add it in Streamlit → Settings → Secrets.")
     st.stop()
 
+# ── Inject Meta Tags (Headless injection for FB Crawler) ────────────────
+# Use a trick to inject plain HTML meta tags. Note: Streamlit puts this in body,
+# but some parsers/crawlers (like FB's) might pick it up if it's early enough,
+# or if they parse the full DOM. This is a common workaround for Streamlit Cloud.
+st.markdown(f"""
+    <meta property="fb:app_id" content="{CLIENT_ID}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="LiveOn Fb" />
+    <meta property="og:description" content="Securely back up your Facebook photos and create a storybook." />
+    <meta property="og:url" content="https://liveonfb.streamlit.app/" />
+    <meta property="og:image" content="https://liveonfb.streamlit.app/media/banner.png" />
+""", unsafe_allow_html=True)
+
 # Initial login: Only request basic profile and photos (NO posts yet)
 # Posts permission will be requested later when user wants to create storybook
 INITIAL_SCOPES = "public_profile,user_photos"
@@ -325,6 +338,9 @@ elif code:
         if access_token:
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
+            # Clear permission cache to force re-check with new token
+            if "has_posts_permission" in st.session_state:
+                del st.session_state["has_posts_permission"]
             # Check if this is a return from memories permission request
             # Now we check the state payload instead of query param
             return_to = state_data.get("return_to")
