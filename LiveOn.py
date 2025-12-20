@@ -47,6 +47,24 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# ── Inject Meta Tags (Early Injection) ────────────────────────
+# Attempting to inject meta tags as early as possible so Streamlit Cloud's
+# pre-renderer might pick them up. Note: fb:app_id is hardcoded here
+# or we try to grab it from secrets if available early, but better to be safe.
+# We'll use the variable if we can or just try/except.
+try:
+    _meta_app_id = st.secrets["FB_CLIENT_ID"]
+    st.markdown(f"""
+        <meta property="fb:app_id" content="{_meta_app_id}" />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="LiveOn Fb" />
+        <meta property="og:description" content="Securely back up your Facebook photos and create a storybook." />
+        <meta property="og:url" content="https://liveonfb.streamlit.app/" />
+        <meta property="og:image" content="https://liveonfb.streamlit.app/media/banner.png" />
+    """, unsafe_allow_html=True)
+except Exception:
+    pass
+
 try:
     qp = st.query_params
     ping = qp.get("ping")
@@ -74,18 +92,7 @@ except KeyError as e:
     st.error(f"Missing secret: {e}. Add it in Streamlit → Settings → Secrets.")
     st.stop()
 
-# ── Inject Meta Tags (Headless injection for FB Crawler) ────────────────
-# Use a trick to inject plain HTML meta tags. Note: Streamlit puts this in body,
-# but some parsers/crawlers (like FB's) might pick it up if it's early enough,
-# or if they parse the full DOM. This is a common workaround for Streamlit Cloud.
-st.markdown(f"""
-    <meta property="fb:app_id" content="{CLIENT_ID}" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="LiveOn Fb" />
-    <meta property="og:description" content="Securely back up your Facebook photos and create a storybook." />
-    <meta property="og:url" content="https://liveonfb.streamlit.app/" />
-    <meta property="og:image" content="https://liveonfb.streamlit.app/media/banner.png" />
-""", unsafe_allow_html=True)
+
 
 # Initial login: Only request basic profile and photos (NO posts yet)
 # Posts permission will be requested later when user wants to create storybook
