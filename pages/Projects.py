@@ -1386,14 +1386,21 @@ if backups:
 
 
 
-            is_paid_for_memories = _memories_is_paid(backup["id"])
 
-            if SHOW_MEMORIES_BUTTON and is_paid_for_memories:
-                if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
-                    st.session_state["selected_backup"] = backup['id']
-                    st.switch_page("pages/FbMemories.py")
-            elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
-                st.caption("🔒 Memories unlocks after purchase")
+
+            # ========================================
+            # MEMORIES FEATURE DISABLED (user_posts permission not used)
+            # ========================================
+            # is_paid_for_memories = _memories_is_paid(backup["id"])
+            #
+            # if SHOW_MEMORIES_BUTTON and is_paid_for_memories:
+            #     if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
+            #         st.session_state["selected_backup"] = backup['id']
+            #         st.switch_page("pages/FbMemories.py")
+            # elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
+            #     st.caption("🔒 Memories unlocks after purchase")
+            # ========================================
+
 
         st.divider()
     st.markdown("</div>", unsafe_allow_html=True)

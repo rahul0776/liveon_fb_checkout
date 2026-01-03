@@ -113,5 +113,6 @@ st.download_button(
 st.info(f"File ready: **{download_name}**")
 
 st.divider()
-if st.button("📘 Go to Memories"):
-    st.switch_page("pages/FbMemories.py")
+# DISABLED - Memories feature not available
+# if st.button("📘 Go to Memories"):
+#     st.switch_page("pages/FbMemories.py")

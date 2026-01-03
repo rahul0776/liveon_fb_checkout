@@ -749,6 +749,12 @@ if qp.get("return_to") == "memories" and qp.get("code"):
 test_mode = st.query_params.get("test_permission") == "1"
 show_permission_ui = not has_posts_permission or test_mode
 
+# Debug: Show permission status
+st.sidebar.markdown("### 🔍 Permission Debug Info")
+st.sidebar.info(f"Has posts permission: **{has_posts_permission}**")
+st.sidebar.info(f"Test mode: **{test_mode}**")
+st.sidebar.info(f"Show permission UI: **{show_permission_ui}**")
+
 if show_permission_ui:
     st.markdown("""
     <div class="card" style="text-align:center; padding:40px;">

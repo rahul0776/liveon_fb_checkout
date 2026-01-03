@@ -94,10 +94,10 @@ except KeyError as e:
 
 
 
-# Initial login: Only request basic profile and photos (NO posts yet)
-# Posts permission will be requested later when user wants to create storybook
+# Initial login: Only request basic profile and photos
+# Posts permission is NOT used in this version
 INITIAL_SCOPES = "public_profile,user_photos"
-POSTS_SCOPES = "public_profile,user_photos,user_posts"  # Additional permission for storybook
+# POSTS_SCOPES = "public_profile,user_photos,user_posts"  # DISABLED - not using posts permission
 
 # Default to initial scopes
 SCOPES = INITIAL_SCOPES
@@ -124,12 +124,13 @@ def build_auth_url(additional_scopes="") -> str:
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
 
-def build_posts_auth_url() -> str:
-    """
-    Build OAuth URL specifically for requesting posts permission.
-    This is used when user wants to create a storybook and needs posts access.
-    """
-    return build_auth_url("user_posts")
+# DISABLED - Posts permission not used
+# def build_posts_auth_url() -> str:
+#     """
+#     Build OAuth URL specifically for requesting posts permission.
+#     This is used when user wants to create a storybook and needs posts access.
+#     """
+#     return build_auth_url("user_posts")
 
 
 def exchange_code_for_token(code: str) -> str | None:
@@ -345,30 +346,26 @@ elif code:
         if access_token:
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
-            # Clear permission cache to force re-check with new token
-            if "has_posts_permission" in st.session_state:
-                del st.session_state["has_posts_permission"]
-            # Check if this is a return from memories permission request
-            # Now we check the state payload instead of query param
-            return_to = state_data.get("return_to")
-            if return_to == "memories":
-                # Restore selection state if present
-                if state_data.get("selected_backup"):
-                    st.session_state["selected_backup"] = state_data["selected_backup"]
-                if state_data.get("selected_project"):
-                    st.session_state["selected_project"] = state_data["selected_project"]
-                    
-                st.success("✅ Permission granted! Redirecting to Memories…")
-                try: st.query_params.clear()
-                except: pass
-                time.sleep(0.8)
-                st.switch_page("pages/FbMemories.py")
-            else:
-                st.success("✅ Login successful! Redirecting…")
-                try: st.query_params.clear()
-                except: pass
-                time.sleep(0.8)
-                st.switch_page(DEST_PAGE)
+            # DISABLED - Posts permission and memories feature not used
+            # if "has_posts_permission" in st.session_state:
+            #     del st.session_state["has_posts_permission"]
+            # return_to = state_data.get("return_to")
+            # if return_to == "memories":
+            #     if state_data.get("selected_backup"):
+            #         st.session_state["selected_backup"] = state_data["selected_backup"]
+            #     if state_data.get("selected_project"):
+            #         st.session_state["selected_project"] = state_data["selected_project"]
+            #     st.success("✅ Permission granted! Redirecting to Memories…")
+            #     try: st.query_params.clear()
+            #     except: pass
+            #     time.sleep(0.8)
+            #     st.switch_page("pages/FbMemories.py")
+            # else:
+            st.success("✅ Login successful! Redirecting…")
+            try: st.query_params.clear()
+            except: pass
+            time.sleep(0.8)
+            st.switch_page(DEST_PAGE)
         else:
             st.error("❌ Could not sign you in. Please try again.")
 
@@ -440,6 +437,6 @@ else:
 
         st.markdown("""
             <div class="hero-box" style="border:none; box-shadow:none; background:transparent; padding-top:0;">
-                <div class="subtext">We'll request posts permission later when you create your storybook.</div>
+                <div class="subtext">Your photos will be securely backed up and available for download.</div>
             </div>
         """, unsafe_allow_html=True)
