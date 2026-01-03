@@ -20,8 +20,9 @@ from datetime import timedelta
 import stripe
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
+# SHOW_MEMORIES_BUTTON disabled - memories feature not in use
 SHOW_MEMORIES_BUTTON = str(
-    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "true"))
+    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "false"))
 ).strip().lower() in ("1", "true", "yes", "on")
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
