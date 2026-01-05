@@ -12,7 +12,7 @@ import requests
 import hashlib
 from pathlib import Path
 from urllib.parse import quote_plus
-import shutil, zipfile, concurrent.futures, random
+import shutil, zipfile, concurrent.futures, random, uuid
 import time
 from io import BytesIO
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
@@ -1030,6 +1030,15 @@ else:
                 meta_user_id=fb_id_val,
                 backup_prefix=folder_prefix,
             )
+            
+            # --- SECURITY FIX: ISOLATE DATA ---
+            # Create a unique directory for this specific backup session
+            session_id = str(uuid.uuid4())
+            session_backup_dir = Path("facebook_data") / session_id
+            session_img_dir = session_backup_dir / "images"
+            session_backup_dir.mkdir(parents=True, exist_ok=True)
+            session_img_dir.mkdir(parents=True, exist_ok=True)
+            # ----------------------------------
 
             # Enhanced toast notification
             st.toast("🚀 Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
@@ -1097,7 +1106,9 @@ else:
                             "is_photo": True  # Flag to indicate this came from photos, not posts
                         })
                 
-                save_json(posts, "posts")
+                        })
+                
+                save_json(posts, "posts", session_backup_dir)
                 steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
                 
                 elapsed = time.time() - backup_start_time
@@ -1115,7 +1126,7 @@ else:
                         try:
                             # Generate fallback ID if post doesn't have one
                             post_id = post.get("id", hashlib.md5(f"{post.get('message','')}{img_url}".encode()).hexdigest()[:12])
-                            img_path = download_image(img_url, post_id)
+                            img_path = download_image(img_url, post_id, session_img_dir)
                             futures.append((post, executor.submit(dense_caption, img_path)))
                             signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
                             post["picture"] = signed_url
@@ -1146,20 +1157,20 @@ else:
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45, 'Processed posts & captions')}")
 
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
-                save_json(posts, "posts+cap")
-                save_json({"comments": []}, "comments.json")
-                save_json({"likes": []}, "likes.json")
-                save_json({"videos": []}, "videos.json")
-                save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json")
+                save_json(posts, "posts+cap", session_backup_dir)
+                save_json({"comments": []}, "comments.json", session_backup_dir)
+                save_json({"likes": []}, "likes.json", session_backup_dir)
+                save_json({"videos": []}, "videos.json", session_backup_dir)
+                save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json", session_backup_dir)
                 summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts), "photos": len(posts), "backup_type": "photos_only"}
-                save_json(summary, "summary")
+                save_json(summary, "summary", session_backup_dir)
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(60, text="✅ Files prepared")
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60, 'Files prepared')}")
 
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
-                upload_folder(BACKUP_DIR, folder_prefix)
+                upload_folder(session_backup_dir, folder_prefix)
                 # ── NEW: wait for worker's summary ─────────────────────────────
                 results_prefix = "results"
                 result_blob_name = f"{results_prefix}/{folder_prefix}/posts+cap.summary.json"
@@ -1196,7 +1207,7 @@ else:
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80, 'Uploaded backup folder')}")
 
                 steps[4]["active"] = True; _render_steps(step_ph, steps)
-                zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+                zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip", session_backup_dir, session_img_dir)
                 with open(zip_path, "rb") as f:
                     container = blob_service_client.get_container_client(CONTAINER)
                     container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
@@ -1206,8 +1217,15 @@ else:
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90, 'ZIP uploaded')}")
 
                 steps[5]["active"] = True; _render_steps(step_ph, steps)
-                shutil.rmtree(BACKUP_DIR)
-                BACKUP_DIR.mkdir(exist_ok=True); IMG_DIR.mkdir(exist_ok=True)
+                
+                # Cleanup unique directory
+                try:
+                    shutil.rmtree(session_backup_dir)
+                    if zip_path.exists():
+                        zip_path.unlink()
+                except Exception:
+                    pass
+                
                 steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
                 overall.progress(95, text="✅ Cleanup complete")
