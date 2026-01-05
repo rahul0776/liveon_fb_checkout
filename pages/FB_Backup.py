@@ -33,22 +33,33 @@ def _get_secret(name: str, default: str | None = None) -> str | None:
         return os.environ.get(name, default)
 
 def restore_session() -> None:
+    # 1. If already in memory, done
     if all(k in st.session_state for k in ["fb_id", "fb_name", "fb_token"]):
         return
+
+    # 2. If 'cache' param exists in URL, try to load that SPECIFIC file
+    qp = st.query_params
+    token_hash = qp.get("cache")
+    if isinstance(token_hash, list): token_hash = token_hash[0]
+
+    if not token_hash:
+        return
+
     cache_dir = Path("cache")
     if not cache_dir.exists():
         return
-    for file in cache_dir.glob("backup_cache_*.json"):
+        
+    cand = cache_dir / f"backup_cache_{token_hash}.json"
+    if cand.exists():
         try:
-            with open(file, "r", encoding="utf-8") as f:
+            with open(cand, "r", encoding="utf-8") as f:
                 cached = json.load(f)
             if "fb_token" in cached:
                 st.session_state["fb_token"] = cached.get("fb_token")
                 st.session_state["fb_id"] = cached.get("fb_id") or cached.get("latest_backup", {}).get("user_id")
                 st.session_state["fb_name"] = cached.get("fb_name") or cached.get("latest_backup", {}).get("name")
-                return
         except Exception:
-            continue
+            pass
 
 # ----------------- Bootstrap -----------------
 restore_session()
