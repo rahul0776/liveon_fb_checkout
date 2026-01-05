@@ -755,26 +755,38 @@ def enforce_single_backup(user_id: str):
 
 def delete_backup_prefix(prefix: str):
     try:
+        # 1. List all blobs fast
         to_delete = list(container_client.list_blobs(name_starts_with=f"{prefix}/"))
-        for b in to_delete:
+        
+        if not to_delete:
+            return
+
+        # 2. Parallel delete (Dramatic speedup)
+        def _del_blob(b):
             try:
                 container_client.get_blob_client(b.name).delete_blob(delete_snapshots="include")
-            except Exception as e:
-                if DEBUG:
-                    st.write(f"Delete error for {b.name}: {e}")
+            except Exception:
+                pass
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            # Submit all delete tasks at once
+            list(executor.map(_del_blob, to_delete))
+
+        # 3. Cleanup session state
         lb = st.session_state.get("latest_backup")
         if lb and str(lb.get("Folder", "")).lower().rstrip("/") == prefix.lower().rstrip("/"):
             st.session_state.pop("latest_backup", None)
             st.session_state.pop("new_backup_done", None)
 
-        cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
-        if cache_file.exists():
-            try:
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump({"fb_token": st.session_state["fb_token"]}, f)
-            except Exception:
-                pass
+        # 4. Cleanup cache file
+        if "fb_token" in st.session_state:
+            cache_file = Path(f"cache/backup_cache_{hashlib.md5(st.session_state['fb_token'].encode()).hexdigest()}.json")
+            if cache_file.exists():
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump({"fb_token": st.session_state["fb_token"]}, f)
+                except Exception:
+                    pass
 
         log_event(
             "backup_deleted",
