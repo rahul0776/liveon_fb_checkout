@@ -1063,7 +1063,7 @@ else:
             with st.status("🔄 Working on your backup…", state="running", expanded=True) as status:
                 steps = [
                     {"label": "Fetched photos", "done": False},
-                    {"label": "Processed photos & captions", "done": False},
+                    {"label": "Processed photos", "done": False},
                     {"label": "Files prepared", "done": False},
                     {"label": "Uploaded backup folder", "done": False},
                     {"label": "ZIP uploaded", "done": False},
@@ -1116,8 +1116,6 @@ else:
                             "images": image_urls,
                             "full_picture": image_urls[0] if image_urls else None,
                             "is_photo": True  # Flag to indicate this came from photos, not posts
-                        })
-                
                         })
                 
                 save_json(posts, "posts", session_backup_dir)
