@@ -548,8 +548,7 @@ st.markdown(f"""
 # FbFullProfile helpers
 # ---------------------------------------------
 CONTAINER = "backup"
-BACKUP_DIR = Path("facebook_data"); BACKUP_DIR.mkdir(exist_ok=True)
-IMG_DIR = BACKUP_DIR / "images"; IMG_DIR.mkdir(exist_ok=True)
+# REMOVED: Global BACKUP_DIR/IMG_DIR (caused data leakage)
 MAX_FB_PAGES = int(st.secrets.get("FB_MAX_PAGES", os.getenv("FB_MAX_PAGES", "1000")))
 DEFAULT_PAGE_SIZE = int(st.secrets.get("FB_PAGE_SIZE", os.getenv("FB_PAGE_SIZE", "100")))
 def fetch_data(endpoint, token, since=None, until=None, fields=None):
@@ -587,12 +586,12 @@ def fetch_data(endpoint, token, since=None, until=None, fields=None):
 
     return data
 
-def save_json(obj, name):
-    fp = BACKUP_DIR / f"{name}.json"
+def save_json(obj, name, backup_dir: Path):
+    fp = backup_dir / f"{name}.json"
     fp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
     return fp
 
-def upload_folder(BACKUP_DIR, blob_prefix):
+def upload_folder(backup_dir: Path, blob_prefix):
     container = blob_service_client.get_container_client(CONTAINER)
     try:
         container.create_container()
@@ -601,10 +600,10 @@ def upload_folder(BACKUP_DIR, blob_prefix):
 
     # Collect files first
     files = []
-    for root, _, filenames in os.walk(BACKUP_DIR):
+    for root, _, filenames in os.walk(backup_dir):
         for file in filenames:
             local_path = Path(root) / file
-            relative_path = str(local_path.relative_to(BACKUP_DIR))
+            relative_path = str(local_path.relative_to(backup_dir))
             blob_path = f"{blob_prefix}/{relative_path}".replace("\\", "/")
             files.append((local_path, blob_path))
 
@@ -619,11 +618,11 @@ def upload_folder(BACKUP_DIR, blob_prefix):
         with open(local_path, "rb") as f:
             container.get_blob_client(blob_path).upload_blob(f, overwrite=True)
 
-def download_image(url, name_id):
+def download_image(url, name_id, img_dir: Path):
     ext = url.split(".")[-1].split("?")[0]
     if len(ext) > 5 or "/" in ext: ext = "jpg"
     fname = f"{name_id}.{ext}"
-    local_path = IMG_DIR / fname
+    local_path = img_dir / fname
     r = requests.get(url, stream=True, timeout=10)
     if r.status_code == 200:
         with open(local_path, 'wb') as f: shutil.copyfileobj(r.raw, f)
@@ -657,21 +656,22 @@ def dense_caption(img_path):
     except Exception as e:
         return f"No caption (API error: {e})"
 
-def zip_backup(zip_name):
+def zip_backup(zip_name, backup_dir: Path, img_dir: Path):
     zip_path = Path(zip_name)
     with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
         # 1) summary.json at the root (if it exists)
-        summary_fp = BACKUP_DIR / "summary.json"
+        summary_fp = backup_dir / "summary.json"
         if summary_fp.exists():
             zipf.write(summary_fp, arcname="summary.json")
 
         # 2) everything under images/ (preserve folder structure)
-        if IMG_DIR.exists():
-            for folder, _, files in os.walk(IMG_DIR):
+        # 2) everything under images/ (preserve folder structure)
+        if img_dir.exists():
+            for folder, _, files in os.walk(img_dir):
                 for file in files:
                     fp = Path(folder) / file
                     # arcname relative to BACKUP_DIR ensures "images/..." in the zip
-                    arcname = os.path.relpath(fp, BACKUP_DIR)
+                    arcname = os.path.relpath(fp, backup_dir)
                     zipf.write(fp, arcname)
 
     return zip_path
