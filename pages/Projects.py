@@ -6,7 +6,6 @@ import os
 import json
 import logging
 from datetime import datetime, timezone
-from pandas import DataFrame
 from azure.storage.blob import BlobServiceClient
 import requests
 import hashlib
@@ -724,11 +723,9 @@ def list_user_backup_prefixes(user_id: str):
             except Exception:
                 rec["ts"] = getattr(blob, "last_modified", datetime.now(timezone.utc))
             rec["has_summary"] = True
-        elif filename == "posts+cap.json":
-            rec["has_posts"] = True
     valid = []
     for pfx, info in prefixes.items():
-        if info["has_summary"] and info["has_posts"]:
+        if info["has_summary"]:
             valid.append((pfx, info["ts"] or datetime.now(timezone.utc)))
     valid.sort(key=lambda x: x[1], reverse=True)
     return [p for p, _ in valid]
@@ -931,8 +928,7 @@ try:
     if prefixes:
         pfx = prefixes[0]
         summary_blob = container_client.get_blob_client(f"{pfx}/summary.json")
-        posts_blob = container_client.get_blob_client(f"{pfx}/posts+cap.json")
-        if summary_blob.exists() and posts_blob.exists():
+        if summary_blob.exists():
             try:
                 summary = json.loads(summary_blob.download_blob().readall().decode("utf-8"))
                 created_dt = datetime.fromisoformat(summary.get("timestamp", "2000-01-01"))
@@ -960,8 +956,7 @@ if st.session_state.pop("new_backup_done", False):
     if latest and str(latest.get("user_id")).strip() == str(fb_id).strip():
         folder = latest.get("Folder").rstrip("/").lower()
         summary_blob = container_client.get_blob_client(f"{folder}/summary.json")
-        posts_blob = container_client.get_blob_client(f"{folder}/posts+cap.json")
-        if summary_blob.exists() and posts_blob.exists():
+        if summary_blob.exists():
             if not any(b["id"].rstrip("/").lower() == folder for b in backups):
                 backups.insert(0, {
                     "id": folder,
@@ -1327,34 +1322,7 @@ if backups:
                                 )
 
                     else:
-                        # No .zip in storage yet — zip the JSON on the fly so the user still gets a .zip
-                        posts_bc = container_client.get_blob_client(posts_blob_path)
-                        if posts_bc.exists():
-                            # Show progress for JSON download and ZIP creation
-                            progress_ph = st.empty()
-                            progress_ph.progress(0, text="📥 Downloading backup data...")
-                            
-                            raw = posts_bc.download_blob().readall()
-                            progress_ph.progress(50, text="📦 Creating ZIP file...")
-                            
-                            mem = BytesIO()
-                            with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as zf:
-                                zf.writestr("posts+cap.json", raw)
-                            mem.seek(0)
-                            
-                            progress_ph.progress(100, text="✅ Ready for download!")
-                            progress_ph.empty()  # Clear progress bar
-                            
-                            st.download_button(
-                                "📥 Download Backup",
-                                data=mem.getvalue(),
-                                file_name=download_name,
-                                mime="application/zip",
-                                use_container_width=True,
-                                key=f"dl_{safe_id}",
-                            )
-                        else:
-                            st.warning("Backup file isn’t available yet. Please try again in a moment.")
+                        st.warning("Backup file isn’t available yet. Please try again in a moment.")
                 except Exception as e:
                     st.error(f"Download failed: {e}")
 
