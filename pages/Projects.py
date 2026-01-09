@@ -1167,11 +1167,6 @@ else:
                 time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45, 'Processed posts & captions')}")
 
                 steps[2]["active"] = True; _render_steps(step_ph, steps)
-                save_json(posts, "posts+cap", session_backup_dir)
-                save_json({"comments": []}, "comments.json", session_backup_dir)
-                save_json({"likes": []}, "likes.json", session_backup_dir)
-                save_json({"videos": []}, "videos.json", session_backup_dir)
-                save_json({"profile": {"name": fb_name_slug, "id": fb_id_val}}, "profile.json", session_backup_dir)
                 summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts), "photos": len(posts), "backup_type": "photos_only"}
                 save_json(summary, "summary", session_backup_dir)
                 steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
@@ -1181,35 +1176,6 @@ else:
 
                 steps[3]["active"] = True; _render_steps(step_ph, steps)
                 upload_folder(session_backup_dir, folder_prefix)
-                # ── NEW: wait for worker's summary ─────────────────────────────
-                results_prefix = "results"
-                result_blob_name = f"{results_prefix}/{folder_prefix}/posts+cap.summary.json"
-                cc = blob_service_client.get_container_client(CONTAINER)
-                result_bc = cc.get_blob_client(result_blob_name)
-
-                overall.progress(85, text="Waiting for AI summary from worker… this part may take a few minutes")
-
-                wait_seconds = 60  # adjust if you like
-                found = False
-                for _ in range(wait_seconds):
-                    try:
-                        if result_bc.exists():
-                            found = True
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(1)
-
-                worker_summary = None
-                if found:
-                    try:
-                        worker_summary = json.loads(result_bc.download_blob().readall().decode("utf-8")).get("summary", "")
-                        st.success("✅ AI summary ready!")
-                        st.markdown(f"**Preview:**\n\n{worker_summary[:1200]}{'…' if len(worker_summary) > 1200 else ''}")
-                    except Exception as e:
-                        st.warning(f"Could not read worker result: {e}")
-                else:
-                    st.info("The background worker is still generating the summary. It will appear shortly in your results folder.")
 
                 steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
                 elapsed = time.time() - backup_start_time
