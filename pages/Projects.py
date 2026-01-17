@@ -16,7 +16,11 @@ import time
 from io import BytesIO
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from datetime import timedelta
+from datetime import timedelta
 import stripe
+import hmac, hashlib, base64
+import secrets as pysecrets
+from urllib.parse import urlencode
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
 # SHOW_MEMORIES_BUTTON disabled - memories feature not in use
@@ -585,6 +589,48 @@ def fetch_data(endpoint, token, since=None, until=None, fields=None):
 
     return data
 
+def check_permission(permission_name):
+    """Check if specific permission is granted (cached in session)."""
+    if st.session_state.get(f"has_{permission_name}"):
+        return True
+
+    token = st.session_state.get("fb_token")
+    if not token: return False
+        
+    try:
+        r = requests.get(f"https://graph.facebook.com/me/permissions?access_token={token}", timeout=5)
+        data = r.json().get("data", [])
+        for p in data:
+            if p.get("permission") == permission_name and p.get("status") == "granted":
+                st.session_state[f"has_{permission_name}"] = True
+                return True
+    except:
+        pass
+    return False
+
+def build_step_up_auth_url(additional_scopes, extra_state=None):
+    """Generate OAuth URL for step-up authentication (replicates LiveOn logic)."""
+    client_id = st.secrets["FB_CLIENT_ID"]
+    redirect_uri = st.secrets["FB_REDIRECT_URI"]
+    
+    def _b64e(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")
+    
+    payload = {"ts": int(time.time()), "nonce": pysecrets.token_urlsafe(16)}
+    if extra_state: payload.update(extra_state)
+    
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    sig = hmac.new(st.secrets["STATE_SECRET"].encode(), raw, hashlib.sha256).digest()
+    state_token = _b64e(raw) + "." + _b64e(sig)
+    
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": f"public_profile,{additional_scopes}",
+        "response_type": "code",
+        "state": state_token,
+    }
+    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+
 def save_json(obj, name, backup_dir: Path):
     fp = backup_dir / f"{name}.json"
     fp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1026,17 +1072,38 @@ else:
             st.stop()
         folder_prefix = f"{fb_id_val}/{fb_name_slug}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
+
         start_disabled = st.session_state.get("backup_running", False)
 
-        if st.button("⬇️ Start My Backup", disabled=start_disabled):
-            st.session_state["backup_running"] = True
-            backup_start_time = time.time()
-            log_event(
-                "backup_start_requested",
-                True,
-                meta_user_id=fb_id_val,
-                backup_prefix=folder_prefix,
+        # --- STEP-UP AUTH CHECK ---
+        # Check if we have photos permission. If not, show the "Enable" button instead.
+        has_photos = check_permission("user_photos")
+        
+        if not has_photos:
+            st.info("📸 One last step: We need permission to access your photos.")
+            
+            # Use specific return path to bring them right back here
+            auth_url = build_step_up_auth_url(
+                additional_scopes="user_photos",
+                extra_state={
+                    "expected_user_id": fb_id_val,
+                    "return_to": "pages/Projects.py"
+                }
             )
+            
+            st.link_button("📸 Enable Photo Access", auth_url, type="primary")
+            st.caption("🔒 We'll redirect you to Facebook to approve photo access, then bring you right back here.")
+
+        else:
+            if st.button("⬇️ Start My Backup", disabled=start_disabled):
+                st.session_state["backup_running"] = True
+                backup_start_time = time.time()
+                log_event(
+                    "backup_start_requested",
+                    True,
+                    meta_user_id=fb_id_val,
+                    backup_prefix=folder_prefix,
+                )
             
             # --- SECURITY FIX: ISOLATE DATA ---
             # Create a unique directory for this specific backup session

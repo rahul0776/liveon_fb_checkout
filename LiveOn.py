@@ -96,14 +96,14 @@ except KeyError as e:
 
 # Initial login: Only request basic profile and photos
 # Posts permission is NOT used in this version
-INITIAL_SCOPES = "public_profile,user_photos"
+INITIAL_SCOPES = "public_profile"
 # POSTS_SCOPES = "public_profile,user_photos,user_posts"  # DISABLED - not using posts permission
 
 # Default to initial scopes
 SCOPES = INITIAL_SCOPES
 
 # ── Helpers ────────────────────────────────────────────────
-def build_auth_url(additional_scopes="") -> str:
+def build_auth_url(additional_scopes="", extra_state=None) -> str:
     """
     Build OAuth URL for Facebook login.
     
@@ -120,7 +120,7 @@ def build_auth_url(additional_scopes="") -> str:
         "redirect_uri": REDIRECT_URI,
         "scope": scopes,
         "response_type": "code",
-        "state": make_state(),         
+        "state": make_state(extra_state),
     }
     return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
 
@@ -344,28 +344,40 @@ elif code:
         st.info("🔄 Connecting to Facebook…")
         access_token = exchange_code_for_token(code)
         if access_token:
+            # --- NEW: Security Check for "Step-Up" Auth ---
+            # If we expect a specific user (e.g., granting photos permission for an existing session),
+            # verify the new token belongs to the same user.
+            expected_user_id = state_data.get("expected_user_id") if state_data else None
+            
+            # We must fetch profile to verify ID (and to set session state)
+            try:
+                r = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}", timeout=5)
+                r.raise_for_status()
+                profile = r.json()
+                new_user_id = str(profile.get("id"))
+                
+                if expected_user_id and new_user_id != str(expected_user_id):
+                    st.error("🔒 Security Alert: You authenticated with a different Facebook account.")
+                    st.info("Please log in with the account you initially used to secure this backup.")
+                    # Do not save token
+                    st.stop()
+                    
+            except Exception as e:
+                st.error(f"Failed to verify Facebook identity: {e}")
+                st.stop()
+
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
-            # DISABLED - Posts permission and memories feature not used
-            # if "has_posts_permission" in st.session_state:
-            #     del st.session_state["has_posts_permission"]
-            # return_to = state_data.get("return_to")
-            # if return_to == "memories":
-            #     if state_data.get("selected_backup"):
-            #         st.session_state["selected_backup"] = state_data["selected_backup"]
-            #     if state_data.get("selected_project"):
-            #         st.session_state["selected_project"] = state_data["selected_project"]
-            #     st.success("✅ Permission granted! Redirecting to Memories…")
-            #     try: st.query_params.clear()
-            #     except: pass
-            #     time.sleep(0.8)
-            #     st.switch_page("pages/FbMemories.py")
-            # else:
-            st.success("✅ Login successful! Redirecting…")
+            
+            # --- Routing ---
+            # Redirect to the specific page that requested the permission
+            target_page = state_data.get("return_to", DEST_PAGE) if state_data else DEST_PAGE
+            
+            st.success(f"✅ Verified! Returning to {target_page.split('/')[-1]}...")
             try: st.query_params.clear()
             except: pass
-            time.sleep(0.8)
-            st.switch_page(DEST_PAGE)
+            time.sleep(0.5)
+            st.switch_page(target_page)
         else:
             st.error("❌ Could not sign you in. Please try again.")
 
