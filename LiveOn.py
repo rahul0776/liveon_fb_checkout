@@ -344,27 +344,32 @@ elif code:
         st.info("🔄 Connecting to Facebook…")
         access_token = exchange_code_for_token(code)
         if access_token:
-            # --- NEW: Security Check for "Step-Up" Auth ---
+            # --- NEW: Security Check for \"Step-Up\" Auth ---
             # If we expect a specific user (e.g., granting photos permission for an existing session),
             # verify the new token belongs to the same user.
             expected_user_id = state_data.get("expected_user_id") if state_data else None
             
-            # We must fetch profile to verify ID (and to set session state)
-            try:
-                r = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}", timeout=5)
-                r.raise_for_status()
-                profile = r.json()
-                new_user_id = str(profile.get("id"))
-                
-                if expected_user_id and new_user_id != str(expected_user_id):
-                    st.error("🔒 Security Alert: You authenticated with a different Facebook account.")
-                    st.info("Please log in with the account you initially used to secure this backup.")
-                    # Do not save token
-                    st.stop()
+            # Only verify identity if we have an expected user (step-up auth)
+            if expected_user_id:
+                try:
+                    r = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}", timeout=5)
+                    r.raise_for_status()
+                    profile = r.json()
+                    new_user_id = str(profile.get("id"))
                     
-            except Exception as e:
-                st.error(f"Failed to verify Facebook identity: {e}")
-                st.stop()
+                    if new_user_id != str(expected_user_id):
+                        st.error("🔒 Security Alert: You authenticated with a different Facebook account.")
+                        st.info("Please log in with the account you initially used to secure this backup.")
+                        # Do not save token
+                        st.stop()
+                        
+                except requests.exceptions.HTTPError as e:
+                    st.error(f"❌ Facebook API Error: {e.response.status_code}")
+                    st.info("Please try logging in again. If the problem persists, contact support.")
+                    st.stop()
+                except Exception as e:
+                    st.error(f"Failed to verify Facebook identity: {e}")
+                    st.stop()
 
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
