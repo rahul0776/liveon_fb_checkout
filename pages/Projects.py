@@ -249,7 +249,7 @@ if BILLING_READY:
 if "fb_token" in st.session_state and st.session_state["fb_token"]:
     try:
         response = requests.get(
-            f"https://graph.facebook.com/me?fields=id,name,email&access_token={st.session_state['fb_token']}",
+            f"https://graph.facebook.com/me?fields=id,name&access_token={st.session_state['fb_token']}",
             timeout=10
         )
         response.raise_for_status()
