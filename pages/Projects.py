@@ -1105,202 +1105,202 @@ else:
                     backup_prefix=folder_prefix,
                 )
             
-            # --- SECURITY FIX: ISOLATE DATA ---
-            # Create a unique directory for this specific backup session
-            session_id = str(uuid.uuid4())
-            session_backup_dir = Path("facebook_data") / session_id
-            session_img_dir = session_backup_dir / "images"
-            session_backup_dir.mkdir(parents=True, exist_ok=True)
-            session_img_dir.mkdir(parents=True, exist_ok=True)
-            # ----------------------------------
+                # --- SECURITY FIX: ISOLATE DATA ---
+                # Create a unique directory for this specific backup session
+                session_id = str(uuid.uuid4())
+                session_backup_dir = Path("facebook_data") / session_id
+                session_img_dir = session_backup_dir / "images"
+                session_backup_dir.mkdir(parents=True, exist_ok=True)
+                session_img_dir.mkdir(parents=True, exist_ok=True)
+                # ----------------------------------
 
-            # Enhanced toast notification
-            st.toast("🚀 Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
-            st.caption("💡 Tip: Don't close this browser tab while we work. You'll see each step complete below.")
+                # Enhanced toast notification
+                st.toast("🚀 Starting your backup… this can take several minutes. Please keep this tab open.", icon="⏳")
+                st.caption("💡 Tip: Don't close this browser tab while we work. You'll see each step complete below.")
 
-            # Enhanced progress with time estimation
-            overall = st.progress(0, text="Preparing to start… (estimated time: 2-5 minutes)")
-            time_estimate_ph = st.empty()
+                # Enhanced progress with time estimation
+                overall = st.progress(0, text="Preparing to start… (estimated time: 2-5 minutes)")
+                time_estimate_ph = st.empty()
 
-            with st.status("🔄 Working on your backup…", state="running", expanded=True) as status:
-                steps = [
-                    {"label": "Fetched photos", "done": False},
-                    {"label": "Processed photos", "done": False},
-                    {"label": "Files prepared", "done": False},
-                    {"label": "Uploaded backup folder", "done": False},
-                    {"label": "ZIP uploaded", "done": False},
-                    {"label": "Cleanup complete", "done": False},
-                ]
-                step_ph = st.empty()
-                _render_steps(step_ph, steps)
+                with st.status("🔄 Working on your backup…", state="running", expanded=True) as status:
+                    steps = [
+                        {"label": "Fetched photos", "done": False},
+                        {"label": "Processed photos", "done": False},
+                        {"label": "Files prepared", "done": False},
+                        {"label": "Uploaded backup folder", "done": False},
+                        {"label": "ZIP uploaded", "done": False},
+                        {"label": "Cleanup complete", "done": False},
+                    ]
+                    step_ph = st.empty()
+                    _render_steps(step_ph, steps)
 
-                steps[0]["active"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
-                
-                # Stage 1: Fetch photos only (no posts permission needed yet)
-                # Try photos/uploaded first (more reliable for user-uploaded photos)
-                photos = fetch_data("photos/uploaded", token, fields="id,created_time,images,name")
-                
-                # Fallback to regular photos endpoint if uploaded returns nothing
-                if len(photos) == 0:
-                    st.info("📸 No uploaded photos found, trying all photos...")
-                    photos = fetch_data("photos", token, fields="id,created_time,images,name")
-                
-                # Debug: Log photo fetch results
-                if DEBUG or len(photos) == 0:
-                    st.warning(f"📊 Debug: Fetched {len(photos)} photos from Facebook API")
-                    if len(photos) == 0:
-                        st.error("⚠️ No photos were returned from Facebook. This could be due to: 1) No photos in your account, 2) Missing permissions, or 3) API access issues.")
-                        log_event(
-                            "backup_no_photos_found",
-                            False,
-                            meta_user_id=fb_id_val,
-                            backup_prefix=folder_prefix,
-                        )
-                
-                # Convert photos to post-like format for compatibility
-                posts = []
-                for photo in photos:
-                    # Extract image URLs from photo
-                    image_urls = []
-                    if isinstance(photo.get("images"), list):
-                        # Get the largest image
-                        largest = max(photo.get("images", []), key=lambda x: x.get("width", 0) * x.get("height", 0), default={})
-                        if largest.get("source"):
-                            image_urls.append(largest["source"])
+                    steps[0]["active"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
                     
-                    if image_urls:
-                        posts.append({
-                            "id": photo.get("id"),
-                            "created_time": photo.get("created_time"),
-                            "message": photo.get("name", ""),
-                            "images": image_urls,
-                            "full_picture": image_urls[0] if image_urls else None,
-                            "is_photo": True  # Flag to indicate this came from photos, not posts
-                        })
-                
-                save_json(posts, "posts", session_backup_dir)
-                steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
-                
-                elapsed = time.time() - backup_start_time
-                overall.progress(20, text=f"✅ Fetched {len(posts)} photos")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
+                    # Stage 1: Fetch photos only (no posts permission needed yet)
+                    # Try photos/uploaded first (more reliable for user-uploaded photos)
+                    photos = fetch_data("photos/uploaded", token, fields="id,created_time,images,name")
+                    
+                    # Fallback to regular photos endpoint if uploaded returns nothing
+                    if len(photos) == 0:
+                        st.info("📸 No uploaded photos found, trying all photos...")
+                        photos = fetch_data("photos", token, fields="id,created_time,images,name")
+                    
+                    # Debug: Log photo fetch results
+                    if DEBUG or len(photos) == 0:
+                        st.warning(f"📊 Debug: Fetched {len(photos)} photos from Facebook API")
+                        if len(photos) == 0:
+                            st.error("⚠️ No photos were returned from Facebook. This could be due to: 1) No photos in your account, 2) Missing permissions, or 3) API access issues.")
+                            log_event(
+                                "backup_no_photos_found",
+                                False,
+                                meta_user_id=fb_id_val,
+                                backup_prefix=folder_prefix,
+                            )
+                    
+                    # Convert photos to post-like format for compatibility
+                    posts = []
+                    for photo in photos:
+                        # Extract image URLs from photo
+                        image_urls = []
+                        if isinstance(photo.get("images"), list):
+                            # Get the largest image
+                            largest = max(photo.get("images", []), key=lambda x: x.get("width", 0) * x.get("height", 0), default={})
+                            if largest.get("source"):
+                                image_urls.append(largest["source"])
+                        
+                        if image_urls:
+                            posts.append({
+                                "id": photo.get("id"),
+                                "created_time": photo.get("created_time"),
+                                "message": photo.get("name", ""),
+                                "images": image_urls,
+                                "full_picture": image_urls[0] if image_urls else None,
+                                "is_photo": True  # Flag to indicate this came from photos, not posts
+                            })
+                    
+                    save_json(posts, "posts", session_backup_dir)
+                    steps[0]["active"] = False; steps[0]["done"] = True; _render_steps(step_ph, steps)
+                    
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(20, text=f"✅ Fetched {len(posts)} photos")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 20, 'Fetched posts')}")
 
-                steps[1]["active"] = True; _render_steps(step_ph, steps)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = []
-                    for post in posts:
-                        # Safe array access: get first image if images array exists and is not empty
-                        img_url = post.get("images")[0] if post.get("images") else None
-                        if not img_url:
-                            continue
-                        try:
-                            # Generate fallback ID if post doesn't have one
-                            post_id = post.get("id", hashlib.md5(f"{post.get('message','')}{img_url}".encode()).hexdigest()[:12])
-                            img_path = download_image(img_url, post_id, session_img_dir)
-                            futures.append((post, executor.submit(dense_caption, img_path)))
-                            signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
-                            post["picture"] = signed_url
-                            post.setdefault("images", [])
-                            if signed_url not in post["images"]:
-                                post["images"].insert(0, signed_url)
-                        except Exception as e:
-                            post["picture"] = "download failed"
-                            post["context_caption"] = f"Image download failed: {e}"
+                    steps[1]["active"] = True; _render_steps(step_ph, steps)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        futures = []
+                        for post in posts:
+                            # Safe array access: get first image if images array exists and is not empty
+                            img_url = post.get("images")[0] if post.get("images") else None
+                            if not img_url:
+                                continue
+                            try:
+                                # Generate fallback ID if post doesn't have one
+                                post_id = post.get("id", hashlib.md5(f"{post.get('message','')}{img_url}".encode()).hexdigest()[:12])
+                                img_path = download_image(img_url, post_id, session_img_dir)
+                                futures.append((post, executor.submit(dense_caption, img_path)))
+                                signed_url = generate_blob_url(folder_prefix, Path(img_path).name)
+                                post["picture"] = signed_url
+                                post.setdefault("images", [])
+                                if signed_url not in post["images"]:
+                                    post["images"].insert(0, signed_url)
+                            except Exception as e:
+                                post["picture"] = "download failed"
+                                post["context_caption"] = f"Image download failed: {e}"
 
-                    total = max(1, len(futures))
-                    done_count = 0
-                    for post, fut in futures:
-                        try:
-                            post["context_caption"] = fut.result()
-                        except Exception:
-                            post["context_caption"] = "caption failed"
-                        done_count += 1
-                        pct = 20 + int(25 * (done_count / total))
-                        elapsed = time.time() - backup_start_time
-                        remaining = estimate_remaining_time(elapsed, pct, 'Processed posts & captions')
-                        overall.progress(pct, text=f"🖼️ Processing images & captions… ({done_count}/{total})")
-                        time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {remaining}")
+                        total = max(1, len(futures))
+                        done_count = 0
+                        for post, fut in futures:
+                            try:
+                                post["context_caption"] = fut.result()
+                            except Exception:
+                                post["context_caption"] = "caption failed"
+                            done_count += 1
+                            pct = 20 + int(25 * (done_count / total))
+                            elapsed = time.time() - backup_start_time
+                            remaining = estimate_remaining_time(elapsed, pct, 'Processed posts & captions')
+                            overall.progress(pct, text=f"🖼️ Processing images & captions… ({done_count}/{total})")
+                            time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {remaining}")
 
-                steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                overall.progress(45, text="✅ Images & captions processed")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45, 'Processed posts & captions')}")
+                    steps[1]["active"] = False; steps[1]["done"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(45, text="✅ Images & captions processed")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 45, 'Processed posts & captions')}")
 
-                steps[2]["active"] = True; _render_steps(step_ph, steps)
-                summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts), "photos": len(posts), "backup_type": "photos_only"}
-                save_json(summary, "summary", session_backup_dir)
-                steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                overall.progress(60, text="✅ Files prepared")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60, 'Files prepared')}")
+                    steps[2]["active"] = True; _render_steps(step_ph, steps)
+                    summary = {"user": fb_name_slug, "user_id": fb_id_val, "timestamp": datetime.now(timezone.utc).isoformat(), "posts": len(posts), "photos": len(posts), "backup_type": "photos_only"}
+                    save_json(summary, "summary", session_backup_dir)
+                    steps[2]["active"] = False; steps[2]["done"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(60, text="✅ Files prepared")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 60, 'Files prepared')}")
 
-                steps[3]["active"] = True; _render_steps(step_ph, steps)
-                upload_folder(session_backup_dir, folder_prefix)
+                    steps[3]["active"] = True; _render_steps(step_ph, steps)
+                    upload_folder(session_backup_dir, folder_prefix)
 
-                steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                overall.progress(80, text="✅ Uploaded backup folder")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80, 'Uploaded backup folder')}")
+                    steps[3]["active"] = False; steps[3]["done"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(80, text="✅ Uploaded backup folder")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 80, 'Uploaded backup folder')}")
 
-                steps[4]["active"] = True; _render_steps(step_ph, steps)
-                zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip", session_backup_dir, session_img_dir)
-                with open(zip_path, "rb") as f:
-                    container = blob_service_client.get_container_client(CONTAINER)
-                    container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
-                steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                overall.progress(90, text="✅ ZIP uploaded")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90, 'ZIP uploaded')}")
+                    steps[4]["active"] = True; _render_steps(step_ph, steps)
+                    zip_path = zip_backup(f"{fb_name_slug}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip", session_backup_dir, session_img_dir)
+                    with open(zip_path, "rb") as f:
+                        container = blob_service_client.get_container_client(CONTAINER)
+                        container.get_blob_client(f"{folder_prefix}/{zip_path.name}").upload_blob(f, overwrite=True)
+                    steps[4]["active"] = False; steps[4]["done"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(90, text="✅ ZIP uploaded")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 90, 'ZIP uploaded')}")
 
-                steps[5]["active"] = True; _render_steps(step_ph, steps)
-                
-                # Cleanup unique directory
-                try:
-                    shutil.rmtree(session_backup_dir)
-                    if zip_path.exists():
-                        zip_path.unlink()
-                except Exception:
-                    pass
-                
-                steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
-                elapsed = time.time() - backup_start_time
-                overall.progress(95, text="✅ Cleanup complete")
-                time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 95, 'Cleanup complete')}")
+                    steps[5]["active"] = True; _render_steps(step_ph, steps)
+                    
+                    # Cleanup unique directory
+                    try:
+                        shutil.rmtree(session_backup_dir)
+                        if zip_path.exists():
+                            zip_path.unlink()
+                    except Exception:
+                        pass
+                    
+                    steps[5]["active"] = False; steps[5]["done"] = True; _render_steps(step_ph, steps)
+                    elapsed = time.time() - backup_start_time
+                    overall.progress(95, text="✅ Cleanup complete")
+                    time_estimate_ph.caption(f"⏱️ Elapsed: {int(elapsed)}s | Estimated remaining: {estimate_remaining_time(elapsed, 95, 'Cleanup complete')}")
 
-                cache_file = ensure_cache_dir() / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
-                latest_backup = {
-                    "Name": fb_name_slug,
-                    "Created On": datetime.now().strftime("%b %d, %Y"),
-                    "# Posts": len(posts),
-                    "Folder": folder_prefix.rstrip("/"),
-                    "user_id": fb_id_val
-                }
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump({"fb_token": token, "latest_backup": latest_backup, "new_backup_done": True}, f, indent=2)
+                    cache_file = ensure_cache_dir() / f"backup_cache_{hashlib.md5(token.encode()).hexdigest()}.json"
+                    latest_backup = {
+                        "Name": fb_name_slug,
+                        "Created On": datetime.now().strftime("%b %d, %Y"),
+                        "# Posts": len(posts),
+                        "Folder": folder_prefix.rstrip("/"),
+                        "user_id": fb_id_val
+                    }
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump({"fb_token": token, "latest_backup": latest_backup, "new_backup_done": True}, f, indent=2)
 
-                total_time = time.time() - backup_start_time
-                overall.progress(100, text="🎉 Backup complete!")
-                time_estimate_ph.caption(f"⏱️ Total time: {int(total_time)}s")
-                log_event(
-                    "backup_completed",
-                    True,
-                    meta_user_id=fb_id_val,
-                    backup_prefix=folder_prefix,
-                    posts=len(posts),
-                    total_seconds=int(total_time),
-                )
-                status.update(label="🎉 Backup complete!", state="complete")
-                st.toast("🎉 Backup complete! Your scrapbook is ready to preview.", icon="🎉")
+                    total_time = time.time() - backup_start_time
+                    overall.progress(100, text="🎉 Backup complete!")
+                    time_estimate_ph.caption(f"⏱️ Total time: {int(total_time)}s")
+                    log_event(
+                        "backup_completed",
+                        True,
+                        meta_user_id=fb_id_val,
+                        backup_prefix=folder_prefix,
+                        posts=len(posts),
+                        total_seconds=int(total_time),
+                    )
+                    status.update(label="🎉 Backup complete!", state="complete")
+                    st.toast("🎉 Backup complete! Your scrapbook is ready to preview.", icon="🎉")
 
-            st.session_state.update({
-                "fb_token": token,
-                "new_backup_done": True,
-                "latest_backup": latest_backup,
-                "show_creator": False,
-                "backup_running": False,
-            })
+                st.session_state.update({
+                    "fb_token": token,
+                    "new_backup_done": True,
+                    "latest_backup": latest_backup,
+                    "show_creator": False,
+                    "backup_running": False,
+                })
             st.rerun()   # CHANGED
 
     st.markdown('</div>', unsafe_allow_html=True)
