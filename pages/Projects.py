@@ -157,8 +157,11 @@ def restore_session():
     """
     Restore only from a per-user cache file identified by a URL query param (?cache=<hash>)
     or from the exact file for the current in-memory token. Never scan all users' files.
+    
+    IMPORTANT: If we already have a token in session (from fresh OAuth), don't overwrite it!
     """
-    if st.session_state.get("fb_token") and st.session_state.get("fb_id") and st.session_state.get("fb_name"):
+    # If we already have a complete session from OAuth, don't restore from cache
+    if st.session_state.get("fb_token"):
         return
 
     cache_dir = Path("cache")
