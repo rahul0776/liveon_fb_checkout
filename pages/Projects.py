@@ -1059,7 +1059,7 @@ else:
     else:
         token = st.session_state["fb_token"]
         try:
-            response = requests.get(f"https://graph.facebook.com/me?fields=id,name,email&access_token={token}", timeout=10)
+            response = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={token}", timeout=10)
             response.raise_for_status()
             fb_profile = response.json()
             fb_name_slug = (fb_profile.get("name", "user") or "user").replace(" ", "_")
