@@ -591,22 +591,30 @@ def fetch_data(endpoint, token, since=None, until=None, fields=None):
 
 def check_permission(permission_name):
     """Check if specific permission is granted (cached in session)."""
-    if st.session_state.get(f"has_{permission_name}"):
-        return True
+    cache_key = f"has_{permission_name}"
+    
+    # Return cached value if it exists
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
 
     token = st.session_state.get("fb_token")
-    if not token: return False
+    if not token:
+        st.session_state[cache_key] = False
+        return False
         
     try:
         r = requests.get(f"https://graph.facebook.com/me/permissions?access_token={token}", timeout=5)
         data = r.json().get("data", [])
         for p in data:
             if p.get("permission") == permission_name and p.get("status") == "granted":
-                st.session_state[f"has_{permission_name}"] = True
+                st.session_state[cache_key] = True
                 return True
+        # Permission not found - cache the negative result
+        st.session_state[cache_key] = False
+        return False
     except:
-        pass
-    return False
+        # On error, don't cache - allow retry next time
+        return False
 
 def build_step_up_auth_url(additional_scopes, extra_state=None):
     """Generate OAuth URL for step-up authentication (replicates LiveOn logic)."""
