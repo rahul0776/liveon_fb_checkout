@@ -271,7 +271,9 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
             }
         }
         (cache_dir / f"backup_cache_{token_hash}.json").write_text(json.dumps(payload), encoding="utf-8")
-        qp_set(cache=token_hash)
+        current_cache = qp_get("cache")
+        if current_cache != token_hash:
+            qp_set(cache=token_hash)
 
     except Exception as e:
         if DEBUG:
@@ -1088,6 +1090,9 @@ else:
 
         # --- STEP-UP AUTH CHECK ---
         # Check if we have photos permission. If not, show the "Enable" button instead.
+        # If we just returned from step-up auth, permission may have changed.
+        # Clear cached permission result so we re-fetch it from FB.
+        st.session_state.pop("has_user_photos", None)
         has_photos = check_permission("user_photos")
         
         if not has_photos:
@@ -1312,7 +1317,7 @@ else:
                     "show_creator": False,
                     "backup_running": False,
                 })
-            st.rerun()   # CHANGED
+                st.rerun()   # CHANGED
 
     st.markdown('</div>', unsafe_allow_html=True)
 
