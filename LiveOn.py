@@ -410,13 +410,13 @@ else:
             <div class="hero-box">
                 <h2>🔒 Permission Request</h2>
                 <p style="margin-bottom: 20px;">
-                    To securely back up your photos, we need the following permissions:
+                    To securely back up your photos, we need to link your facebook profile to MinedCo.We need the following permission:
                 </p>
                 <ul style="text-align: left; display: inline-block; margin-bottom: 20px; color: var(--muted);">
                     <li><strong>Public Profile:</strong> To identify your account.</li>
                 </ul>
                 <p style="font-size: 0.9rem; color: var(--gold); margin-bottom: 24px;">
-                    ⚠️ We will <strong>NOT</strong> access your posts at this stage.
+                    ⚠️ We will <strong>NOT</strong> access your photos or posts at this stage.
                 </p>
                 <div style="display: flex; gap: 12px; justify-content: center;">
                     <a href="{auth_url}" class="fb-button">✅ Proceed to Facebook</a>
@@ -438,8 +438,8 @@ else:
         # Default Hero UI
         st.markdown(f"""
             <div class="hero-box">
-                <h1>Let's Back Up Your <span class="accent">Facebook Photos</span></h1>
-                <p>Link your Facebook account to get started—we'll securely back up your photos and create a downloadable archive.</p>
+                <h1>Let's Link Your <span class="accent">Facebook Account to MinedCo</span></h1>
+                <p>Link your Facebook account to get started.</p>
             </div>
         """, unsafe_allow_html=True)
         
