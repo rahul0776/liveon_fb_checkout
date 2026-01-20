@@ -410,7 +410,7 @@ else:
             <div class="hero-box">
                 <h2>🔒 Permission Request</h2>
                 <p style="margin-bottom: 20px;">
-                    To securely back up your photos, we need to link your facebook profile to MinedCo.We need the following permission:
+                    To securely back up your photos, we need to link your facebook profile to Minedco. We need the following permission:
                 </p>
                 <ul style="text-align: left; display: inline-block; margin-bottom: 20px; color: var(--muted);">
                     <li><strong>Public Profile:</strong> To identify your account.</li>
@@ -438,7 +438,7 @@ else:
         # Default Hero UI
         st.markdown(f"""
             <div class="hero-box">
-                <h1>Let's Link Your <span class="accent">Facebook Account to MinedCo</span></h1>
+                <h1>Let's Link Your <span class="accent">Facebook Account to Minedco</span></h1>
                 <p>Link your Facebook account to get started.</p>
             </div>
         """, unsafe_allow_html=True)
