@@ -414,7 +414,6 @@ else:
                 </p>
                 <ul style="text-align: left; display: inline-block; margin-bottom: 20px; color: var(--muted);">
                     <li><strong>Public Profile:</strong> To identify your account.</li>
-                    <li><strong>Photos:</strong> To back up your uploaded photos.</li>
                 </ul>
                 <p style="font-size: 0.9rem; color: var(--gold); margin-bottom: 24px;">
                     ⚠️ We will <strong>NOT</strong> access your posts at this stage.
