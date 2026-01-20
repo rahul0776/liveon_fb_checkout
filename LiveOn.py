@@ -453,6 +453,6 @@ else:
 
         st.markdown("""
             <div class="hero-box" style="border:none; box-shadow:none; background:transparent; padding-top:0;">
-                <div class="subtext">Your photos will be securely backed up and available for download.</div>
+                <div class="subtext"></div>
             </div>
         """, unsafe_allow_html=True)
