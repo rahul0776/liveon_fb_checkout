@@ -1,0 +1,14 @@
+# LiveOn Application Event Logs - Simulated
+[2026-02-23 22:15:01] INFO  [user: system] - Application startup initiated.
+[2026-02-23 22:15:05] INFO  [user: system] - Connection to Stripe API established.
+[2026-02-23 22:18:12] INFO  [user: user_101@example.com] - Successful login via Facebook Graph API.
+[2026-02-23 22:19:45] INFO  [user: user_101@example.com] - Export initiated for Project ID: 88392
+[2026-02-23 22:50:33] INFO  [user: user_102@example.com] - Payment processing successful.
+[2026-02-23 23:05:11] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 192.168.1.105
+[2026-02-23 23:14:22] INFO  [user: user_103@example.com] - Account created successfully.
+[2026-02-23 23:30:01] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 203.0.113.45
+[2026-02-23 23:30:05] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 203.0.113.45
+[2026-02-23 23:30:09] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 203.0.113.45
+[2026-02-23 23:30:15] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 203.0.113.45
+[2026-02-23 23:30:20] WARN  [user: unknown] - Failed login attempt (Invalid Token). IP: 203.0.113.45
+[2026-02-23 23:32:10] INFO  [user: user_104@example.com] - Updated profile settings.
