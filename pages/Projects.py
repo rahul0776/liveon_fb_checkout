@@ -23,9 +23,9 @@ import secrets as pysecrets
 from urllib.parse import urlencode
 
 DEBUG = str(st.secrets.get("DEBUG", "false")).strip().lower() == "true"
-# SHOW_MEMORIES_BUTTON disabled - memories feature not in use
+# SHOW_MEMORIES_BUTTON — enables the scrapbook / memories feature
 SHOW_MEMORIES_BUTTON = str(
-    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "false"))
+    st.secrets.get("SHOW_MEMORIES_BUTTON", os.getenv("SHOW_MEMORIES_BUTTON", "true"))
 ).strip().lower() in ("1", "true", "yes", "on")
 st.set_page_config(
     page_title="My Projects | Facebook Scrapbook",
@@ -933,6 +933,27 @@ def _download_is_paid(prefix: str) -> bool:
         pass
     return False
 
+def _scrapbook_is_paid(prefix: str) -> bool:
+    """Check if user has paid for the scrapbook PDF."""
+    try:
+        if container_client.get_blob_client(f"{prefix}/.paid.scrapbook").exists():
+            return True
+        bc = container_client.get_blob_client(f"{prefix}/scrapbook_entitlements.json")
+        if bc.exists():
+            ent = json.loads(bc.download_blob().readall().decode("utf-8"))
+            if bool(ent.get("scrapbook") or ent.get("paid")):
+                return True
+    except Exception:
+        pass
+    return False
+
+def _scrapbook_pdf_exists(prefix: str) -> bool:
+    """Check if a pre-built scrapbook PDF exists in blob storage."""
+    try:
+        return container_client.get_blob_client(f"{prefix}/scrapbook.pdf").exists()
+    except Exception:
+        return False
+
 
 def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
     """
@@ -1425,8 +1446,6 @@ if backups:
                     }
                     st.switch_page("pages/FB_Backup.py")
             
-            if DEBUG:
-                st.caption(f"debug: paid_for_download={paid_for_download} • prefix={backup['id']}")
 
 
 
@@ -1435,16 +1454,31 @@ if backups:
 
 
             # ========================================
-            # MEMORIES FEATURE DISABLED (user_posts permission not used)
+            # SCRAPBOOK / MEMORIES SECTION
             # ========================================
-            # is_paid_for_memories = _memories_is_paid(backup["id"])
-            #
-            # if SHOW_MEMORIES_BUTTON and is_paid_for_memories:
-            #     if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
-            #         st.session_state["selected_backup"] = backup['id']
-            #         st.switch_page("pages/FbMemories.py")
-            # elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
-            #     st.caption("🔒 Memories unlocks after purchase")
+            is_paid_for_memories = _memories_is_paid(backup["id"])
+
+            if SHOW_MEMORIES_BUTTON and is_paid_for_memories:
+                has_scrapbook_pdf = _scrapbook_is_paid(backup["id"]) and _scrapbook_pdf_exists(backup["id"])
+
+                if has_scrapbook_pdf:
+                    # Paid scrapbook with PDF ready — show download
+                    sas = _sas_url_for_blob(f"{backup['id']}/scrapbook.pdf", minutes=30)
+                    if sas:
+                        st.link_button(
+                            "📖 Download Scrapbook PDF",
+                            sas,
+                            use_container_width=True,
+                        )
+                    else:
+                        st.warning("Scrapbook PDF not available. Try again shortly.")
+                else:
+                    # No scrapbook yet — show Generate Memories button
+                    if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
+                        st.session_state["selected_backup"] = backup['id']
+                        st.switch_page("pages/FbMemories.py")
+            elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
+                st.caption("🔒 Memories unlocks after purchase")
             # ========================================
 
 
