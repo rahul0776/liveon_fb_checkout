@@ -167,56 +167,77 @@ if pending and isinstance(pending, dict) and pending.get("blob_path"):
     st.caption(f"After payment, your download of **{display_name}** will start automatically.")
 
 # ---- Success return handler (runs when Stripe redirects back with ?session_id=...) ----
+import traceback as _tb
+
+def _safe_get(obj, key, default=None):
+    """Safely pull a key from dict-like Stripe objects or plain dicts."""
+    try:
+        if obj is None:
+            return default
+        if hasattr(obj, "get"):
+            v = obj.get(key)
+            return v if v is not None else default
+        return getattr(obj, key, default)
+    except Exception:
+        return default
+
 try:
     qp = st.query_params
-    session_id = qp.get("session_id")
+    session_id = _safe_get(qp, "session_id")
     if isinstance(session_id, list):
         session_id = session_id[0]
 
     if BILLING_READY and session_id:
         try:
             sess = stripe.checkout.Session.retrieve(session_id)
-        except stripe.error.StripeError as e:
-            st.error(f"Stripe API error: {e}")
-            st.stop()
         except Exception as e:
-            st.error(f"Unexpected error retrieving payment session: {e}")
+            st.error(f"Stripe API error retrieving session: {type(e).__name__}: {e}")
             st.stop()
-        
-        if (sess.get("payment_status") or "").lower() == "paid":
-            md = sess.get("metadata") or {}
-            blob_path = md.get("blob") or qp.get("blob") or ""
-            backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+
+        pay_status = (_safe_get(sess, "payment_status") or "").lower()
+
+        if pay_status == "paid":
+            md = _safe_get(sess, "metadata") or {}
+            blob_path = _safe_get(md, "blob") or _safe_get(qp, "blob") or ""
+            backup_prefix = (
+                _safe_get(md, "backup_prefix")
+                or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+            )
 
             if not backup_prefix:
                 st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
             else:
-                _write_entitlements(backup_prefix, sess)
-                
-                # Redirect to Projects.py instead of showing success message here
+                try:
+                    _write_entitlements(backup_prefix, sess)
+                except Exception as e:
+                    st.error(f"Failed to write entitlements: {type(e).__name__}: {e}")
+                    st.code(_tb.format_exc())
+                    st.stop()
+
+                # Carry cache param over via session_state so Projects.py can restore session
+                cache = _safe_get(qp, "cache")
+                if isinstance(cache, list):
+                    cache = cache[0]
+                if cache:
+                    st.session_state["_pending_cache"] = cache
+
                 st.session_state["selected_backup"] = backup_prefix
                 st.session_state["payment_success"] = True
                 st.switch_page("pages/Projects.py")
-
-                # keep the cache token alive as we go back to Projects
-                cache = qp.get("cache")
-                if isinstance(cache, list):
-                    cache = cache[0]
-
-                # Prefer a link (ensures ?cache=… is preserved). If switch_page works in your env, it’s fine too.
-                proj_url = f"/Projects?cache={cache or ''}"
-                st.link_button("📘 Open Projects", proj_url)
-                st.stop()
         else:
-            payment_status = sess.get("payment_status", "unknown")
-            if payment_status == "unpaid":
+            if pay_status == "unpaid":
                 st.warning("Payment was not completed. Please try again or contact support if you were charged.")
-            elif payment_status == "no_payment_required":
+            elif pay_status == "no_payment_required":
                 st.info("No payment was required for this session.")
-            else:
-                st.warning(f"Payment status is '{payment_status}'. Please contact support if you were charged.")
+            elif pay_status:
+                st.warning(f"Payment status is '{pay_status}'. Please contact support if you were charged.")
 except Exception as e:
-    st.warning(f"Post-payment handler error: {e}")
+    # Ignore Streamlit's internal page-switch exception so it doesn't look like a real error
+    _etype = type(e).__name__
+    if _etype in ("RerunException", "RerunData", "StopException"):
+        raise
+    st.warning(f"Post-payment handler error: {_etype}: {e}")
+    st.code(_tb.format_exc())
 
 # ----------------- Page CSS (Minedco look) -----------------
 st.markdown("""
