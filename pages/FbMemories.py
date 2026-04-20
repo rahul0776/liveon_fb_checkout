@@ -1047,17 +1047,38 @@ def _scrapbook_is_paid(prefix: str) -> bool:
         pass
     return False
 
-def _write_scrapbook_entitlements(prefix: str, session: dict) -> None:
+def _stripe_pick(obj, key, default=None):
+    """
+    Safely pull a value from a Stripe StripeObject, plain dict, or attr-style object.
+    Avoids .get() because newer stripe-python's StripeObject routes .get through
+    __getattr__ and treats it as a key lookup (raises AttributeError: get).
+    """
+    if obj is None:
+        return default
+    try:
+        val = obj[key]
+        return val if val is not None else default
+    except (KeyError, TypeError, IndexError):
+        pass
+    try:
+        val = getattr(obj, key, default)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
+def _write_scrapbook_entitlements(prefix: str, session) -> None:
     """Write scrapbook entitlements after successful Stripe payment."""
+    md = _stripe_pick(session, "metadata") or {}
     ent = {
         "scrapbook": True,
         "paid": True,
         "paid_at": datetime.now().isoformat(),
-        "checkout_id": session.get("id"),
-        "amount": (session.get("amount_total") or 0) / 100.0,
-        "currency": session.get("currency"),
-        "fb_id": (session.get("metadata") or {}).get("fb_id"),
-        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+        "checkout_id": _stripe_pick(session, "id"),
+        "amount": (_stripe_pick(session, "amount_total") or 0) / 100.0,
+        "currency": _stripe_pick(session, "currency"),
+        "fb_id": _stripe_pick(md, "fb_id"),
+        "fb_name": _stripe_pick(md, "fb_name"),
     }
     bc = container_client.get_blob_client(f"{prefix}/scrapbook_entitlements.json")
     bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
@@ -1068,7 +1089,10 @@ try:
     import stripe as _stripe
     _STRIPE_KEY = st.secrets.get("STRIPE_SCRAPBOOK_SECRET_KEY") or st.secrets.get("STRIPE_SECRET_KEY")
     _qp = st.query_params
-    _sid = _qp.get("session_id")
+    try:
+        _sid = _qp.get("session_id")
+    except Exception:
+        _sid = _qp["session_id"] if "session_id" in _qp else None
     if isinstance(_sid, list): _sid = _sid[0]
 
     if _STRIPE_KEY and _sid:
@@ -1076,12 +1100,16 @@ try:
         try:
             _sess = _stripe.checkout.Session.retrieve(_sid)
         except Exception as _e:
-            st.error(f"Error verifying payment: {_e}")
+            st.error(f"Error verifying payment: {type(_e).__name__}: {_e}")
             _sess = None
 
-        if _sess and (_sess.get("payment_status") or "").lower() == "paid":
-            _md = _sess.get("metadata") or {}
-            _prefix = _md.get("blob_folder") or _qp.get("blob_folder") or ""
+        if _sess and (_stripe_pick(_sess, "payment_status") or "").lower() == "paid":
+            _md = _stripe_pick(_sess, "metadata") or {}
+            try:
+                _qp_folder = _qp.get("blob_folder")
+            except Exception:
+                _qp_folder = _qp["blob_folder"] if "blob_folder" in _qp else None
+            _prefix = _stripe_pick(_md, "blob_folder") or _qp_folder or ""
             if _prefix:
                 _write_scrapbook_entitlements(_prefix, _sess)
                 st.session_state["scrapbook_paid"] = True
@@ -1098,7 +1126,7 @@ try:
                         ).download_blob().readall().decode("utf-8"))
                         _sum_blob = container_client.get_blob_client(f"{_prefix}/scrapbook_summary.txt")
                         _sum_data = _sum_blob.download_blob().readall().decode("utf-8") if _sum_blob.exists() else ""
-                        _user = _md.get("fb_name") or st.session_state.get("fb_name")
+                        _user = _stripe_pick(_md, "fb_name") or st.session_state.get("fb_name")
                         _pdf = build_pdf_bytes(_cls_data, _chap_data, _prefix, _sum_data, "polaroid", user_name=_user)
                         from azure.storage.blob import ContentSettings
                         container_client.get_blob_client(f"{_prefix}/scrapbook.pdf").upload_blob(
@@ -1113,13 +1141,15 @@ try:
             else:
                 st.error("Payment verified but couldn't resolve backup folder. Contact support.")
         elif _sess:
-            _status = _sess.get("payment_status", "unknown")
+            _status = _stripe_pick(_sess, "payment_status") or "unknown"
             if _status == "unpaid":
                 st.warning("Payment was not completed. Please try again.")
             else:
                 st.warning(f"Payment status: '{_status}'. Contact support if you were charged.")
 except Exception as _e:
-    pass  # Stripe not available or no session_id — normal flow
+    _etype = type(_e).__name__
+    if _etype in ("RerunException", "RerunData", "StopException"):
+        raise  # let Streamlit handle page switches normally
 
 # --- SAS helpers (robust across SDK variants) ---
 def _get_account_key() -> str | None:

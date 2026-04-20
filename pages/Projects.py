@@ -291,27 +291,55 @@ if missing_keys:
 # ---------------------------
 # Stripe Payment Return Handler
 # ---------------------------
+def _stripe_pick(obj, key, default=None):
+    """
+    Safely pull a value from a Stripe StripeObject, plain dict, or attr-style object.
+    Avoids .get() because newer stripe-python's StripeObject routes .get through
+    __getattr__ and treats it as a key lookup (raises AttributeError: get).
+    """
+    if obj is None:
+        return default
+    try:
+        val = obj[key]
+        return val if val is not None else default
+    except (KeyError, TypeError, IndexError):
+        pass
+    try:
+        val = getattr(obj, key, default)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
 def handle_stripe_return():
     """Handle Stripe payment return in Projects.py instead of separate success page."""
     qp = st.query_params
-    session_id = qp.get("session_id")
+    try:
+        session_id = qp.get("session_id")
+    except Exception:
+        session_id = qp["session_id"] if "session_id" in qp else None
     if isinstance(session_id, list):
         session_id = session_id[0]
 
     if BILLING_READY and session_id:
         try:
             sess = stripe.checkout.Session.retrieve(session_id)
-        except stripe.error.StripeError as e:
-            st.error(f"Stripe API error: {e}")
-            return False
         except Exception as e:
-            st.error(f"Unexpected error retrieving payment session: {e}")
+            st.error(f"Stripe API error retrieving session: {type(e).__name__}: {e}")
             return False
-        
-        if (sess.get("payment_status") or "").lower() == "paid":
-            md = sess.get("metadata") or {}
-            blob_path = md.get("blob") or qp.get("blob") or ""
-            backup_prefix = md.get("backup_prefix") or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+
+        pay_status = (_stripe_pick(sess, "payment_status") or "").lower()
+        if pay_status == "paid":
+            md = _stripe_pick(sess, "metadata") or {}
+            try:
+                qp_blob = qp.get("blob")
+            except Exception:
+                qp_blob = qp["blob"] if "blob" in qp else None
+            blob_path = _stripe_pick(md, "blob") or qp_blob or ""
+            backup_prefix = (
+                _stripe_pick(md, "backup_prefix")
+                or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
+            )
 
             if not backup_prefix:
                 st.error("Paid, but couldn't resolve the backup prefix. Contact support.")
@@ -320,21 +348,21 @@ def handle_stripe_return():
                 log_event(
                     "stripe_payment_success",
                     True,
-                    meta_user_id=md.get("fb_id"),
+                    meta_user_id=_stripe_pick(md, "fb_id"),
                     backup_prefix=backup_prefix,
-                    session_id=sess.get("id"),
+                    session_id=_stripe_pick(sess, "id"),
                 )
                 _write_entitlements(backup_prefix, sess)
                 st.success("✅ Payment confirmed — Memories unlocked for this backup!")
                 st.session_state["selected_backup"] = backup_prefix
                 return True
         else:
-            payment_status = sess.get("payment_status", "unknown")
+            payment_status = _stripe_pick(sess, "payment_status") or "unknown"
             log_event(
                 "stripe_payment_status",
                 False,
-                meta_user_id=(sess.get("metadata") or {}).get("fb_id"),
-                session_id=sess.get("id"),
+                meta_user_id=_stripe_pick(_stripe_pick(sess, "metadata") or {}, "fb_id"),
+                session_id=_stripe_pick(sess, "id"),
                 status=payment_status,
             )
             if payment_status == "unpaid":
@@ -350,22 +378,23 @@ def _backup_prefix_from_blob_path(blob_path: str) -> str:
     """Extract backup prefix from blob path."""
     return str(blob_path).rsplit("/", 1)[0].strip("/")
 
-def _write_entitlements(prefix: str, session: dict) -> None:
+def _write_entitlements(prefix: str, session) -> None:
     """Write entitlements.json and marker files for paid backup."""
+    md = _stripe_pick(session, "metadata") or {}
     ent = {
         "memories": True,
         "download": True,
         "paid": True,
         "paid_at": datetime.now(timezone.utc).isoformat(),
-        "checkout_id": session.get("id"),
-        "amount": (session.get("amount_total") or 0) / 100.0,
-        "currency": session.get("currency"),
-        "fb_id": (session.get("metadata") or {}).get("fb_id"),
-        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+        "checkout_id": _stripe_pick(session, "id"),
+        "amount": (_stripe_pick(session, "amount_total") or 0) / 100.0,
+        "currency": _stripe_pick(session, "currency"),
+        "fb_id": _stripe_pick(md, "fb_id"),
+        "fb_name": _stripe_pick(md, "fb_name"),
     }
     bc = container_client.get_blob_client(f"{prefix}/entitlements.json")
     bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
-    
+
     # markers (zero-byte files are fine)
     container_client.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
     container_client.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)

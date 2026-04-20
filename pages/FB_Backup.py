@@ -93,28 +93,49 @@ def _backup_prefix_from_blob_path(blob_path: str) -> str:
     """
     return str(blob_path).rsplit("/", 1)[0].strip("/")
 
-def _write_entitlements(prefix: str, session: dict) -> None:
+def _stripe_pick(obj, key, default=None):
+    """
+    Safely pull a value from a Stripe StripeObject, plain dict, or attr-style object.
+    Avoids .get() because newer stripe-python's StripeObject routes .get through
+    __getattr__ and treats it as a key lookup (raises AttributeError: get).
+    """
+    if obj is None:
+        return default
+    try:
+        val = obj[key]
+        return val if val is not None else default
+    except (KeyError, TypeError, IndexError):
+        pass
+    try:
+        val = getattr(obj, key, default)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
+def _write_entitlements(prefix: str, session) -> None:
     """
     Write (or update) entitlements.json in the given backup prefix and
     drop tiny marker files for memories & download.
     """
+    md = _stripe_pick(session, "metadata") or {}
     ent = {
         "memories": True,
         "download": True,
         "paid": True,
         "paid_at": datetime.now(timezone.utc).isoformat(),
-        "checkout_id": session.get("id"),
-        "amount": (session.get("amount_total") or 0) / 100.0,
-        "currency": session.get("currency"),
-        "fb_id": (session.get("metadata") or {}).get("fb_id"),
-        "fb_name": (session.get("metadata") or {}).get("fb_name"),
+        "checkout_id": _stripe_pick(session, "id"),
+        "amount": (_stripe_pick(session, "amount_total") or 0) / 100.0,
+        "currency": _stripe_pick(session, "currency"),
+        "fb_id": _stripe_pick(md, "fb_id"),
+        "fb_name": _stripe_pick(md, "fb_name"),
     }
     bc = _container.get_blob_client(f"{prefix}/entitlements.json")
     bc.upload_blob(json.dumps(ent, ensure_ascii=False).encode("utf-8"), overwrite=True)
 
     # markers (zero-byte files are fine)
     _container.get_blob_client(f"{prefix}/.paid.memories").upload_blob(b"", overwrite=True)
-    _container.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)  # 👈 NEW
+    _container.get_blob_client(f"{prefix}/.paid.download").upload_blob(b"", overwrite=True)
 
 
 # --- NEW: accept prod_ or price_ and resolve to a Price ID
@@ -127,8 +148,8 @@ def _resolve_price_id(price_or_prod: str | None) -> str | None:
     if price_or_prod.startswith("prod_"):
         try:
             prod = stripe.Product.retrieve(price_or_prod)
-            # Use default price if set
-            default_price = prod.get("default_price")
+            # Use default price if set (use subscript — StripeObject.get() is broken)
+            default_price = prod["default_price"] if "default_price" in prod else None
             if default_price:
                 return default_price
             # Otherwise, take the first active price
@@ -169,21 +190,13 @@ if pending and isinstance(pending, dict) and pending.get("blob_path"):
 # ---- Success return handler (runs when Stripe redirects back with ?session_id=...) ----
 import traceback as _tb
 
-def _safe_get(obj, key, default=None):
-    """Safely pull a key from dict-like Stripe objects or plain dicts."""
-    try:
-        if obj is None:
-            return default
-        if hasattr(obj, "get"):
-            v = obj.get(key)
-            return v if v is not None else default
-        return getattr(obj, key, default)
-    except Exception:
-        return default
-
 try:
     qp = st.query_params
-    session_id = _safe_get(qp, "session_id")
+    # st.query_params supports .get() (it's not a StripeObject), but be defensive
+    try:
+        session_id = qp.get("session_id")
+    except Exception:
+        session_id = qp["session_id"] if "session_id" in qp else None
     if isinstance(session_id, list):
         session_id = session_id[0]
 
@@ -194,13 +207,17 @@ try:
             st.error(f"Stripe API error retrieving session: {type(e).__name__}: {e}")
             st.stop()
 
-        pay_status = (_safe_get(sess, "payment_status") or "").lower()
+        pay_status = (_stripe_pick(sess, "payment_status") or "").lower()
 
         if pay_status == "paid":
-            md = _safe_get(sess, "metadata") or {}
-            blob_path = _safe_get(md, "blob") or _safe_get(qp, "blob") or ""
+            md = _stripe_pick(sess, "metadata") or {}
+            try:
+                qp_blob = qp.get("blob")
+            except Exception:
+                qp_blob = qp["blob"] if "blob" in qp else None
+            blob_path = _stripe_pick(md, "blob") or qp_blob or ""
             backup_prefix = (
-                _safe_get(md, "backup_prefix")
+                _stripe_pick(md, "backup_prefix")
                 or (_backup_prefix_from_blob_path(blob_path) if blob_path else "")
             )
 
@@ -215,7 +232,10 @@ try:
                     st.stop()
 
                 # Carry cache param over via session_state so Projects.py can restore session
-                cache = _safe_get(qp, "cache")
+                try:
+                    cache = qp.get("cache")
+                except Exception:
+                    cache = qp["cache"] if "cache" in qp else None
                 if isinstance(cache, list):
                     cache = cache[0]
                 if cache:
