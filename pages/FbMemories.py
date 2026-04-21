@@ -2655,9 +2655,26 @@ if "classification" not in st.session_state:
         if st.button("✨ Generate My Scrapbook", use_container_width=True, type="primary"):
             if not has_posts_permission:
                 auth_url = build_posts_auth_url()
-                q = chr(34)
-                redirect_meta = f"<meta http-equiv={q}refresh{q} content={q}0; url={auth_url}{q}>"
-                st.markdown(redirect_meta, unsafe_allow_html=True)
+                st.info("🔐 To generate your storybook, we need permission to access your Facebook posts.")
+                # Auto-navigate the TOP window out of Streamlit's iframe
+                # (a meta-refresh tries to navigate the iframe itself, which Facebook blocks)
+                import streamlit.components.v1 as _components
+                import json as _json
+                _components.html(
+                    f"""
+                    <script>
+                      try {{
+                        window.top.location.href = {_json.dumps(auth_url)};
+                      }} catch (e) {{
+                        window.location.href = {_json.dumps(auth_url)};
+                      }}
+                    </script>
+                    """,
+                    height=0,
+                )
+                # Fallback link button (renders as <a target="_top">) in case JS is blocked
+                st.link_button("🔗 Grant Access to Posts", auth_url, type="primary")
+                st.caption("If you are not redirected automatically, click the button above.")
                 st.stop()
 
             with st.spinner("🔍 Evaluating your personality and life themes..."):
