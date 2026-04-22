@@ -373,11 +373,21 @@ elif code:
 
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
-            
+
+            # --- Restore selection context from signed state ---
+            # When a sub-page (FbMemories, Projects) initiated a step-up auth,
+            # it encoded the user's current selection into state. Restore it now
+            # so the target page doesn't error with "No backup or project selected".
+            if state_data:
+                if state_data.get("selected_backup"):
+                    st.session_state["selected_backup"] = state_data["selected_backup"]
+                if state_data.get("selected_project"):
+                    st.session_state["selected_project"] = state_data["selected_project"]
+
             # --- Routing ---
             # Redirect to the specific page that requested the permission
             target_page = state_data.get("return_to", DEST_PAGE) if state_data else DEST_PAGE
-            
+
             st.success(f"✅ Verified! Returning to {target_page.split('/')[-1]}...")
             try: st.query_params.clear()
             except: pass
