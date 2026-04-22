@@ -879,13 +879,31 @@ restore_session()
 # When Stripe redirects back to FbMemories, Streamlit Cloud sometimes hands
 # us a fresh container with no filesystem cache, so restore_session() can't
 # recover fb_token. The post-payment pipeline (write entitlements → build
-# PDF → hand off to Projects) only needs blob_folder from the URL and
-# Azure Blob access — it does not need a live Facebook token.
-_is_stripe_return = bool(qp_get("session_id")) and bool(qp_get("blob_folder"))
+# PDF → hand off to Projects/show download) only needs blob_folder from the
+# URL and Azure Blob access — it does not need a live Facebook token.
+#
+# We accept ANY of these signals as evidence of a legitimate post-payment
+# flow (defensive — in case Streamlit reruns mid-flow and strips a param):
+#   • session_id in URL (Stripe just redirected back)
+#   • blob_folder + cache in URL (came from our checkout redirect)
+#   • session_state already flagged post-payment on a prior rerun
+_is_stripe_return = (
+    bool(qp_get("session_id"))
+    or (bool(qp_get("blob_folder")) and bool(qp_get("cache")))
+    or bool(st.session_state.get("_post_payment_flow"))
+)
+
+# Diagnostic caption (safe to leave in — only shows when bypass triggers)
+if _is_stripe_return and "fb_token" not in st.session_state:
+    st.caption(f"✓ Post-payment flow detected — session_id={bool(qp_get('session_id'))}, blob_folder={bool(qp_get('blob_folder'))}, cache={bool(qp_get('cache'))}")
 
 if not _is_stripe_return and "fb_token" not in st.session_state:
     st.warning("Please login with Facebook first.")
     st.stop()
+
+# Sticky flag so subsequent reruns (e.g. after URL mutations) still bypass login
+if _is_stripe_return:
+    st.session_state["_post_payment_flow"] = True
 
 # ── Check for Posts Permission (Required for Storybook) ─────────────────────────────
 def check_posts_permission(token: str) -> bool:
@@ -1129,24 +1147,12 @@ try:
                 st.session_state["scrapbook_paid"] = True
                 st.session_state["selected_backup"] = _prefix
 
-                # Strip session_id from the URL so a browser refresh won't
-                # re-trigger this handler. Keep blob_folder and cache.
-                try:
-                    _remaining = {}
-                    for _k in list(dict(_qp).keys()):
-                        if _k == "session_id":
-                            continue
-                        try:
-                            _remaining[_k] = _qp[_k]
-                        except Exception:
-                            pass
-                    _qp.clear()
-                    for _k, _v in _remaining.items():
-                        _qp[_k] = _v
-                except Exception:
-                    pass
-                # No switch_page here — the paid-but-no-PDF guard below handles
-                # building the PDF and redirecting to Projects.
+                # Note: we intentionally do NOT modify st.query_params here.
+                # Stripping session_id would trigger a rerun, and on that rerun
+                # the login gate could fire before _post_payment_flow is set.
+                # The handler is idempotent — writing entitlements twice is safe.
+                # The paid-but-no-PDF guard below handles building the PDF and
+                # redirecting to Projects / showing the inline download.
             else:
                 st.error("Payment verified but couldn't resolve backup folder. Contact support.")
         elif _sess:
