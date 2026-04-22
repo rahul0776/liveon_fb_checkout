@@ -984,10 +984,14 @@ def _scrapbook_pdf_exists(prefix: str) -> bool:
         return False
 
 
-def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
+def _sas_url_for_blob(blob_path: str, minutes: int = 20, download_as: str | None = None) -> str | None:
     """
     Build a time-limited (read-only) SAS URL to the given blob.
     Falls back to None if we can't access the account key.
+
+    If download_as is set, the URL overrides the response Content-Disposition
+    header so the browser downloads the file (with that filename) instead of
+    opening it inline.
     """
     try:
         conn = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
@@ -996,7 +1000,7 @@ def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
         account_key = parts.get("AccountKey")
         if not account_key:
             return None  # connection string doesn't carry a key (e.g., SAS-based)
-        sas = generate_blob_sas(
+        sas_kwargs = dict(
             account_name=account_name,
             container_name=CONTAINER,
             blob_name=blob_path,
@@ -1004,6 +1008,9 @@ def _sas_url_for_blob(blob_path: str, minutes: int = 20) -> str | None:
             permission=BlobSasPermissions(read=True),
             expiry=datetime.utcnow() + timedelta(minutes=minutes),
         )
+        if download_as:
+            sas_kwargs["content_disposition"] = f'attachment; filename="{download_as}"'
+        sas = generate_blob_sas(**sas_kwargs)
         return f"https://{account_name}.blob.core.windows.net/{CONTAINER}/{blob_path}?{sas}"
     except Exception:
         return None
@@ -1492,7 +1499,13 @@ if backups:
 
                 if has_scrapbook_pdf:
                     # Paid scrapbook with PDF ready — show download
-                    sas = _sas_url_for_blob(f"{backup['id']}/scrapbook.pdf", minutes=30)
+                    # Use download_as to force browser download instead of inline open
+                    _dl_name = f"{backup['name'].replace(' ', '_')}_scrapbook.pdf" if backup.get('name') else "scrapbook.pdf"
+                    sas = _sas_url_for_blob(
+                        f"{backup['id']}/scrapbook.pdf",
+                        minutes=30,
+                        download_as=_dl_name,
+                    )
                     if sas:
                         st.link_button(
                             "📖 Download Scrapbook PDF",
