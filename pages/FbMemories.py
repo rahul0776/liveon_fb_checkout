@@ -1111,33 +1111,33 @@ try:
                 _qp_folder = _qp["blob_folder"] if "blob_folder" in _qp else None
             _prefix = _stripe_pick(_md, "blob_folder") or _qp_folder or ""
             if _prefix:
+                # Write entitlements now. DO NOT try to build the PDF here —
+                # build_pdf_bytes is defined much later in this file, so calling it
+                # now raises NameError. Instead, let the script continue down to the
+                # guard (search for "_existing_paid and not _existing_pdf"), which
+                # runs AFTER build_pdf_bytes is defined and will build + redirect.
                 _write_scrapbook_entitlements(_prefix, _sess)
                 st.session_state["scrapbook_paid"] = True
                 st.session_state["selected_backup"] = _prefix
 
-                # Build PDF from persisted data and upload to blob
-                with st.spinner("Building your scrapbook PDF..."):
-                    try:
-                        _cls_data = json.loads(container_client.get_blob_client(
-                            f"{_prefix}/scrapbook_classification.json"
-                        ).download_blob().readall().decode("utf-8"))
-                        _chap_data = json.loads(container_client.get_blob_client(
-                            f"{_prefix}/scrapbook_chapters.json"
-                        ).download_blob().readall().decode("utf-8"))
-                        _sum_blob = container_client.get_blob_client(f"{_prefix}/scrapbook_summary.txt")
-                        _sum_data = _sum_blob.download_blob().readall().decode("utf-8") if _sum_blob.exists() else ""
-                        _user = _stripe_pick(_md, "fb_name") or st.session_state.get("fb_name")
-                        _pdf = build_pdf_bytes(_cls_data, _chap_data, _prefix, _sum_data, "polaroid", user_name=_user)
-                        from azure.storage.blob import ContentSettings
-                        container_client.get_blob_client(f"{_prefix}/scrapbook.pdf").upload_blob(
-                            _pdf, overwrite=True,
-                            content_settings=ContentSettings(content_type="application/pdf"))
-                    except Exception as _pdf_err:
-                        pass  # Entitlements written; PDF can be rebuilt later
-
-                # Redirect to Projects page
-                st.query_params.clear()
-                st.switch_page("pages/Projects.py")
+                # Strip session_id from the URL so a browser refresh won't
+                # re-trigger this handler. Keep blob_folder and cache.
+                try:
+                    _remaining = {}
+                    for _k in list(dict(_qp).keys()):
+                        if _k == "session_id":
+                            continue
+                        try:
+                            _remaining[_k] = _qp[_k]
+                        except Exception:
+                            pass
+                    _qp.clear()
+                    for _k, _v in _remaining.items():
+                        _qp[_k] = _v
+                except Exception:
+                    pass
+                # No switch_page here — the paid-but-no-PDF guard below handles
+                # building the PDF and redirecting to Projects.
             else:
                 st.error("Payment verified but couldn't resolve backup folder. Contact support.")
         elif _sess:
@@ -2569,11 +2569,17 @@ if _existing_paid and _existing_pdf:
     st.stop()
 
 if _existing_paid and not _existing_pdf:
-    # Paid but PDF not built yet — try to build from persisted data
+    # Paid but PDF not built yet — build from persisted data, then auto-redirect to Projects.
+    # This is the normal post-payment path: the Stripe return handler writes entitlements,
+    # then this block runs in the same page load (after build_pdf_bytes is defined) to
+    # produce the PDF and hand the user off to Projects.
+    _build_err = None
     try:
         _cls_blob = container_client.get_blob_client(f"{blob_folder}/scrapbook_classification.json")
-        if _cls_blob.exists():
-            with st.spinner("Building your scrapbook PDF..."):
+        if not _cls_blob.exists():
+            _build_err = "Missing scrapbook_classification.json — can't rebuild PDF."
+        else:
+            with st.spinner("🎨 Finalizing your scrapbook PDF — hang tight..."):
                 _cls = json.loads(_cls_blob.download_blob().readall().decode("utf-8"))
                 _chaps = json.loads(container_client.get_blob_client(
                     f"{blob_folder}/scrapbook_chapters.json").download_blob().readall().decode("utf-8"))
@@ -2584,14 +2590,21 @@ if _existing_paid and not _existing_pdf:
                 from azure.storage.blob import ContentSettings as _CS
                 container_client.get_blob_client(f"{blob_folder}/scrapbook.pdf").upload_blob(
                     _pdf, overwrite=True, content_settings=_CS(content_type="application/pdf"))
-            st.success("Your scrapbook PDF is ready!")
-            col_l, col_c, col_r = st.columns([1.5, 2, 1.5])
-            with col_c:
-                if st.button("📘 Go to Projects to Download", use_container_width=True, type="primary"):
-                    st.switch_page("pages/Projects.py")
-            st.stop()
-    except Exception:
-        pass  # Fall through to normal generation flow
+    except Exception as _e:
+        _build_err = f"{type(_e).__name__}: {_e}"
+
+    if _build_err is None:
+        # Success — immediately hand off to Projects (no manual click)
+        st.switch_page("pages/Projects.py")
+    else:
+        # Build failed — show error + manual recovery button
+        st.error(f"Couldn't finalize your scrapbook PDF: {_build_err}")
+        st.caption("Your payment is recorded. Try going to Projects — you can retry from there, or contact support.")
+        col_l, col_c, col_r = st.columns([1.5, 2, 1.5])
+        with col_c:
+            if st.button("📘 Go to Projects", use_container_width=True, type="primary"):
+                st.switch_page("pages/Projects.py")
+        st.stop()
 
 st.caption("Loading your Facebook posts from storage…")
 try:
