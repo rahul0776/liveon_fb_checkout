@@ -893,10 +893,6 @@ _is_stripe_return = (
     or bool(st.session_state.get("_post_payment_flow"))
 )
 
-# Diagnostic caption (safe to leave in — only shows when bypass triggers)
-if _is_stripe_return and "fb_token" not in st.session_state:
-    st.caption(f"✓ Post-payment flow detected — session_id={bool(qp_get('session_id'))}, blob_folder={bool(qp_get('blob_folder'))}, cache={bool(qp_get('cache'))}")
-
 if not _is_stripe_return and "fb_token" not in st.session_state:
     st.warning("Please login with Facebook first.")
     st.stop()
@@ -2652,47 +2648,17 @@ if _existing_paid and not _existing_pdf:
         _build_err = f"{type(_e).__name__}: {_e}"
 
     if _build_err is None:
-        # Success. If user has a live Facebook session, hand off to Projects
-        # (so they see the Download button in the normal place). If their
-        # session was lost during the Stripe round-trip (cache file missing
-        # on this container), show the Download button right here on
-        # FbMemories — the SAS URL doesn't need fb_token, only blob access.
-        _has_session = bool(st.session_state.get("fb_token"))
-        if _has_session:
-            st.switch_page("pages/Projects.py")
-        else:
-            # Build a time-limited SAS URL for the freshly uploaded PDF
-            _sas = None
-            try:
-                import re as _re
-                _conn = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
-                _m = _re.search(r"AccountName=([^;]+)", _conn or "")
-                _k = _re.search(r"AccountKey=([^;]+)", _conn or "")
-                if _m and _k:
-                    from azure.storage.blob import generate_blob_sas, BlobSasPermissions
-                    from datetime import datetime as _dt, timedelta as _td
-                    _sas_token = generate_blob_sas(
-                        account_name=_m.group(1),
-                        container_name=CONTAINER,
-                        blob_name=f"{blob_folder}/scrapbook.pdf",
-                        account_key=_k.group(1),
-                        permission=BlobSasPermissions(read=True),
-                        expiry=_dt.utcnow() + _td(minutes=30),
-                    )
-                    _sas = f"https://{_m.group(1)}.blob.core.windows.net/{CONTAINER}/{blob_folder}/scrapbook.pdf?{_sas_token}"
-            except Exception:
-                pass
-
-            st.success("✅ Payment confirmed — your scrapbook is ready!")
-            col_l, col_c, col_r = st.columns([1.5, 2, 1.5])
-            with col_c:
-                if _sas:
-                    st.link_button("📖 Download Scrapbook PDF", _sas,
-                                   use_container_width=True, type="primary")
-                else:
-                    st.warning("Download link couldn't be generated. Please log in again and visit Projects.")
-                st.caption("Your payment and scrapbook are saved. Log in again anytime to revisit.")
-            st.stop()
+        # Success — always hand off to Projects. Projects has its own
+        # post-payment bypass that handles the case where session_state
+        # (fb_token) was lost during the Stripe round-trip.
+        st.session_state["selected_backup"] = blob_folder
+        st.session_state["_post_payment_flow"] = True
+        try:
+            st.query_params["backup"] = blob_folder
+            st.query_params["scrapbook_just_paid"] = "1"
+        except Exception:
+            pass
+        st.switch_page("pages/Projects.py")
     else:
         # Build failed — show error + manual recovery button
         st.error(f"Couldn't finalize your scrapbook PDF: {_build_err}")
