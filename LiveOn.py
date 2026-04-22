@@ -378,19 +378,32 @@ elif code:
             # When a sub-page (FbMemories, Projects) initiated a step-up auth,
             # it encoded the user's current selection into state. Restore it now
             # so the target page doesn't error with "No backup or project selected".
+            _restored_backup = None
+            _restored_project = None
             if state_data:
                 if state_data.get("selected_backup"):
-                    st.session_state["selected_backup"] = state_data["selected_backup"]
+                    _restored_backup = state_data["selected_backup"]
+                    st.session_state["selected_backup"] = _restored_backup
                 if state_data.get("selected_project"):
-                    st.session_state["selected_project"] = state_data["selected_project"]
+                    _restored_project = state_data["selected_project"]
+                    st.session_state["selected_project"] = _restored_project
 
             # --- Routing ---
             # Redirect to the specific page that requested the permission
             target_page = state_data.get("return_to", DEST_PAGE) if state_data else DEST_PAGE
 
             st.success(f"✅ Verified! Returning to {target_page.split('/')[-1]}...")
-            try: st.query_params.clear()
-            except: pass
+            # Clear OAuth params (code/state) but re-stash the selection in the URL
+            # as a fallback so the target page can recover it even if session_state
+            # doesn't survive the page switch.
+            try:
+                st.query_params.clear()
+                if _restored_backup:
+                    st.query_params["backup"] = _restored_backup
+                if _restored_project:
+                    st.query_params["project_id"] = _restored_project
+            except Exception:
+                pass
             time.sleep(0.5)
             st.switch_page(target_page)
         else:

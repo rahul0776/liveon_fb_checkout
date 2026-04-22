@@ -1505,6 +1505,12 @@ if backups:
                     # No scrapbook yet — show Generate Memories button
                     if st.button("📘 Generate Memories", key=f"mem_{safe_id}", type="primary"):
                         st.session_state["selected_backup"] = backup['id']
+                        # Also stash in URL as a fallback in case session_state
+                        # doesn't survive the page switch (some Streamlit Cloud edge cases).
+                        try:
+                            st.query_params["backup"] = backup['id']
+                        except Exception:
+                            pass
                         st.switch_page("pages/FbMemories.py")
             elif SHOW_MEMORIES_BUTTON and not is_paid_for_memories:
                 st.caption("🔒 Memories unlocks after purchase")

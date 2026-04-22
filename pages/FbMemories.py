@@ -1265,10 +1265,18 @@ elif view == "backups":
     st.switch_page("pages/FB_Backup.py")
 
 backup_id = st.session_state.get("selected_backup")
+# Fallback: if session_state didn't carry the selection (can happen after
+# switch_page on Streamlit Cloud, or after Stripe/OAuth redirects), recover
+# from the URL query params passed by Projects.py / LiveOn.py / Stripe return.
+if not backup_id:
+    backup_id = qp_get("backup") or qp_get("blob_folder")
+    if backup_id:
+        st.session_state["selected_backup"] = backup_id
+
 project_id = qp_get("project_id") or st.session_state.get("selected_project")
 
 if backup_id:
-    blob_folder = backup_id  
+    blob_folder = backup_id
     is_project = False
 elif project_id:
     fb_token = st.session_state["fb_token"]
