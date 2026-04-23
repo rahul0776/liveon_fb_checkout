@@ -389,7 +389,14 @@ def _stripe_pick(obj, key, default=None):
 
 
 def handle_stripe_return():
-    """Handle Stripe payment return in Projects.py instead of separate success page."""
+    """Handle Stripe BACKUP payment return in Projects.py.
+
+    We only handle backup-payment sessions here (identifiable by `blob=` in the
+    URL, set by FB_Backup.py's success_url). Scrapbook-payment sessions use a
+    different Stripe account (test vs live) and are handled in FbMemories.py —
+    if we tried to retrieve them with Projects' LIVE key, the API call would
+    fail slowly and spam a visible error on the page.
+    """
     qp = st.query_params
     try:
         session_id = qp.get("session_id")
@@ -397,6 +404,14 @@ def handle_stripe_return():
         session_id = qp["session_id"] if "session_id" in qp else None
     if isinstance(session_id, list):
         session_id = session_id[0]
+
+    # Fast-bail: if this is a scrapbook return (no `blob=` param), don't call Stripe.
+    try:
+        _is_backup_return = bool(qp.get("blob"))
+    except Exception:
+        _is_backup_return = "blob" in qp
+    if not _is_backup_return:
+        return False
 
     if BILLING_READY and session_id:
         try:
