@@ -63,6 +63,35 @@ def restore_session() -> None:
 
 # ----------------- Bootstrap -----------------
 restore_session()
+
+# Early Azure Blob session restore (in case local cache was wiped by Streamlit
+# Cloud container rotation, e.g. after the Stripe redirect).
+if "fb_token" not in st.session_state:
+    _cache_hash_fb = None
+    try:
+        _cache_hash_fb = st.query_params.get("cache")
+    except Exception:
+        pass
+    if _cache_hash_fb:
+        try:
+            import time as _time_fb
+            from azure.storage.blob import BlobServiceClient as _BSC_fb
+            _conn_fb = st.secrets.get("AZURE_CONNECTION_STRING") or os.environ.get("AZURE_CONNECTION_STRING")
+            if _conn_fb:
+                _bc_fb = _BSC_fb.from_connection_string(_conn_fb) \
+                    .get_container_client("backup") \
+                    .get_blob_client(f"_sessions/{_cache_hash_fb}.json")
+                if _bc_fb.exists():
+                    _d_fb = json.loads(_bc_fb.download_blob().readall().decode("utf-8"))
+                    if (int(_time_fb.time()) - int(_d_fb.get("ts", 0)) <= 7 * 86400) and _d_fb.get("fb_token"):
+                        st.session_state["fb_token"] = _d_fb["fb_token"]
+                        if _d_fb.get("fb_id"):
+                            st.session_state["fb_id"] = _d_fb["fb_id"]
+                        if _d_fb.get("fb_name"):
+                            st.session_state["fb_name"] = _d_fb["fb_name"]
+        except Exception:
+            pass
+
 if "fb_token" not in st.session_state:
     st.warning("🔐 Please login with Facebook first.")
     st.stop()
@@ -85,6 +114,29 @@ if not AZURE_CONN:
 
 _blob = BlobServiceClient.from_connection_string(AZURE_CONN)
 _container = _blob.get_container_client("backup")
+
+# ── Azure Blob session persistence ──────────────────────────
+# Streamlit Cloud's local fs cache is ephemeral. We persist fb_token to Blob
+# so post-Stripe-payment pages can always restore the session.
+import time as _time_mod
+def _save_session_to_blob():
+    token = st.session_state.get("fb_token")
+    if not token:
+        return
+    try:
+        th = hashlib.md5(token.encode()).hexdigest()
+        payload = {
+            "fb_token": token,
+            "fb_id": st.session_state.get("fb_id") or "",
+            "fb_name": st.session_state.get("fb_name") or "",
+            "selected_backup": st.session_state.get("selected_backup") or "",
+            "ts": int(_time_mod.time()),
+        }
+        _container.get_blob_client(f"_sessions/{th}.json").upload_blob(
+            json.dumps(payload).encode("utf-8"), overwrite=True
+        )
+    except Exception:
+        pass
 
 def _backup_prefix_from_blob_path(blob_path: str) -> str:
     """
@@ -290,6 +342,9 @@ price_is_placeholder = (not RESOLVED_PRICE_ID) or RESOLVED_PRICE_ID.endswith("pl
 
 if st.button("💳 Buy Now for $9.99", disabled=(not BILLING_READY or price_is_placeholder)):
     try:
+        # Persist session to Blob so the post-payment redirect can restore it
+        # (Streamlit Cloud's local cache may not survive the round-trip).
+        _save_session_to_blob()
         # add session_id to success url (works whether or not there are existing params)
         sep = '&' if '?' in success_url_for_item else '?'
         success_url_with_session = f"{success_url_for_item}{sep}session_id={{CHECKOUT_SESSION_ID}}"

@@ -374,6 +374,49 @@ elif code:
             st.session_state["fb_token"] = access_token
             st.session_state["token_issued_at"] = int(time.time())
 
+            # --- Persist session to Azure Blob for cross-container durability ---
+            # Local filesystem cache on Streamlit Cloud is ephemeral. Stash a copy
+            # in Blob storage so Stripe/OAuth redirects can always restore.
+            try:
+                from azure.storage.blob import BlobServiceClient as _BSC
+                _az_conn = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
+                if _az_conn:
+                    # Fetch fb profile for fb_id/fb_name
+                    _fb_id = ""
+                    _fb_name = ""
+                    try:
+                        _r = requests.get(
+                            f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}",
+                            timeout=5,
+                        )
+                        if _r.status_code == 200:
+                            _pj = _r.json()
+                            _fb_id = str(_pj.get("id") or "")
+                            _fb_name = _pj.get("name") or ""
+                            st.session_state["fb_id"] = _fb_id
+                            st.session_state["fb_name"] = _fb_name
+                    except Exception:
+                        pass
+                    _th = hashlib.md5(access_token.encode()).hexdigest()
+                    _payload = {
+                        "fb_token": access_token,
+                        "fb_id": _fb_id,
+                        "fb_name": _fb_name,
+                        "selected_backup": st.session_state.get("selected_backup") or "",
+                        "ts": int(time.time()),
+                    }
+                    _bsc = _BSC.from_connection_string(_az_conn)
+                    _bsc.get_container_client("backup").get_blob_client(
+                        f"_sessions/{_th}.json"
+                    ).upload_blob(json.dumps(_payload).encode("utf-8"), overwrite=True)
+                    # Stash the cache hash in URL so sub-pages can find this session
+                    try:
+                        st.query_params["cache"] = _th
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             # --- Restore selection context from signed state ---
             # When a sub-page (FbMemories, Projects) initiated a step-up auth,
             # it encoded the user's current selection into state. Restore it now

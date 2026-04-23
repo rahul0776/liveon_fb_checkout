@@ -231,6 +231,62 @@ if get_blob_service_client() is None:
 blob_service_client = get_blob_service_client()
 container_client = blob_service_client.get_container_client("backup")
 
+# ------------------------------------------------------------------
+# Azure Blob session persistence
+# (Streamlit Cloud's local filesystem cache is ephemeral — a container
+#  rotation during a Stripe redirect wipes it. Blob storage is durable.)
+# ------------------------------------------------------------------
+def _save_session_to_blob():
+    """Write current session to Azure Blob so redirects can restore it."""
+    token = st.session_state.get("fb_token")
+    if not token:
+        return
+    try:
+        th = hashlib.md5(token.encode()).hexdigest()
+        payload = {
+            "fb_token": token,
+            "fb_id": st.session_state.get("fb_id") or "",
+            "fb_name": st.session_state.get("fb_name") or "",
+            "selected_backup": st.session_state.get("selected_backup") or "",
+            "ts": int(time.time()),
+        }
+        container_client.get_blob_client(f"_sessions/{th}.json").upload_blob(
+            json.dumps(payload).encode("utf-8"), overwrite=True
+        )
+    except Exception:
+        pass
+
+def _load_session_from_blob() -> bool:
+    """Try to restore session from Azure Blob using cache hash in URL. Returns True on success."""
+    if st.session_state.get("fb_token"):
+        return True
+    th = qp_get("cache")
+    if not th:
+        return False
+    try:
+        bc = container_client.get_blob_client(f"_sessions/{th}.json")
+        if not bc.exists():
+            return False
+        data = json.loads(bc.download_blob().readall().decode("utf-8"))
+        # Expire sessions older than 7 days
+        if int(time.time()) - int(data.get("ts", 0)) > 7 * 86400:
+            return False
+        if not data.get("fb_token"):
+            return False
+        st.session_state["fb_token"] = data["fb_token"]
+        if data.get("fb_id"):
+            st.session_state["fb_id"] = data["fb_id"]
+        if data.get("fb_name"):
+            st.session_state["fb_name"] = data["fb_name"]
+        if data.get("selected_backup") and not st.session_state.get("selected_backup"):
+            st.session_state["selected_backup"] = data["selected_backup"]
+        return True
+    except Exception:
+        return False
+
+# Try Azure Blob restore BEFORE any login gates
+_load_session_from_blob()
+
 # ---------------------------
 # Stripe Configuration
 # ---------------------------
@@ -271,6 +327,8 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
             }
         }
         (cache_dir / f"backup_cache_{token_hash}.json").write_text(json.dumps(payload), encoding="utf-8")
+        # Also persist to Azure Blob for cross-container durability
+        _save_session_to_blob()
         current_cache = qp_get("cache")
         if current_cache != token_hash:
             qp_set(cache=token_hash)
@@ -285,7 +343,26 @@ if "fb_token" in st.session_state and st.session_state["fb_token"]:
 
 missing_keys = [k for k in ["fb_id", "fb_name", "fb_token"] if not st.session_state.get(k)]
 if missing_keys:
-    st.warning(f"⚠️ Missing session keys: {missing_keys}")
+    st.warning(
+        "🔐 Your session has expired. Please log in with Facebook again to continue — "
+        "your backups and any paid scrapbooks are saved safely in the cloud."
+    )
+    # Prominent re-login button via a top-window navigation so it works inside Streamlit's iframe
+    _home_url = "/"
+    import streamlit.components.v1 as _components
+    _components.html(
+        f"""
+        <div style="text-align:center; padding:20px;">
+          <a href="{_home_url}" target="_top"
+             style="display:inline-block; padding:12px 28px; background:#F6C35D;
+                    color:#0F253D; font-weight:700; border-radius:10px;
+                    text-decoration:none; font-family:Inter,system-ui,sans-serif;">
+            ↩ Go to Login
+          </a>
+        </div>
+        """,
+        height=90,
+    )
     st.stop()
 
 # ---------------------------

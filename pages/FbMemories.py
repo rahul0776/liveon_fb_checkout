@@ -875,6 +875,35 @@ def persist_session():
 
 restore_session()
 
+# ── Early Azure Blob session restore ──────────────────────────
+# The local filesystem cache in restore_session() can fail on Streamlit Cloud
+# (containers rotate, wiping the cache dir). Try Azure Blob using the `cache`
+# URL param BEFORE the login gate, so a logged-in user whose cache was wiped
+# isn't kicked back to the login screen.
+if not st.session_state.get("fb_token"):
+    _early_cache_hash = qp_get("cache")
+    if _early_cache_hash:
+        try:
+            from azure.storage.blob import BlobServiceClient as _BSC_early
+            import time as _time_early
+            _conn_early = st.secrets.get("AZURE_CONNECTION_STRING") or os.getenv("AZURE_CONNECTION_STRING")
+            if _conn_early:
+                _bc_early = _BSC_early.from_connection_string(_conn_early) \
+                    .get_container_client("backup") \
+                    .get_blob_client(f"_sessions/{_early_cache_hash}.json")
+                if _bc_early.exists():
+                    _d_early = json.loads(_bc_early.download_blob().readall().decode("utf-8"))
+                    if (int(_time_early.time()) - int(_d_early.get("ts", 0)) <= 7 * 86400) and _d_early.get("fb_token"):
+                        st.session_state["fb_token"] = _d_early["fb_token"]
+                        if _d_early.get("fb_id"):
+                            st.session_state["fb_id"] = _d_early["fb_id"]
+                        if _d_early.get("fb_name"):
+                            st.session_state["fb_name"] = _d_early["fb_name"]
+                        if _d_early.get("selected_backup") and not st.session_state.get("selected_backup"):
+                            st.session_state["selected_backup"] = _d_early["selected_backup"]
+        except Exception:
+            pass
+
 # Allow the Stripe-return flow to proceed even if session_state was lost.
 # When Stripe redirects back to FbMemories, Streamlit Cloud sometimes hands
 # us a fresh container with no filesystem cache, so restore_session() can't
@@ -1052,6 +1081,58 @@ CONTAINER     = "backup"
 
 blob_service_client = BlobServiceClient.from_connection_string(CONNECT_STR)
 container_client = blob_service_client.get_container_client(CONTAINER)
+
+# ── Azure Blob session persistence ──────────────────────────
+# Streamlit Cloud's local filesystem cache is ephemeral; Blob storage is not.
+# We persist session here so Stripe/OAuth round-trips can always restore it.
+import time as _time_mod
+def _save_session_to_blob():
+    token = st.session_state.get("fb_token")
+    if not token:
+        return
+    try:
+        th = hashlib.md5(token.encode()).hexdigest()
+        payload = {
+            "fb_token": token,
+            "fb_id": st.session_state.get("fb_id") or "",
+            "fb_name": st.session_state.get("fb_name") or "",
+            "selected_backup": st.session_state.get("selected_backup") or "",
+            "ts": int(_time_mod.time()),
+        }
+        container_client.get_blob_client(f"_sessions/{th}.json").upload_blob(
+            json.dumps(payload).encode("utf-8"), overwrite=True
+        )
+    except Exception:
+        pass
+
+def _load_session_from_blob() -> bool:
+    if st.session_state.get("fb_token"):
+        return True
+    th = qp_get("cache")
+    if not th:
+        return False
+    try:
+        bc = container_client.get_blob_client(f"_sessions/{th}.json")
+        if not bc.exists():
+            return False
+        data = json.loads(bc.download_blob().readall().decode("utf-8"))
+        if int(_time_mod.time()) - int(data.get("ts", 0)) > 7 * 86400:
+            return False
+        if not data.get("fb_token"):
+            return False
+        st.session_state["fb_token"] = data["fb_token"]
+        if data.get("fb_id"):
+            st.session_state["fb_id"] = data["fb_id"]
+        if data.get("fb_name"):
+            st.session_state["fb_name"] = data["fb_name"]
+        if data.get("selected_backup") and not st.session_state.get("selected_backup"):
+            st.session_state["selected_backup"] = data["selected_backup"]
+        return True
+    except Exception:
+        return False
+
+# Fallback restore: try Azure Blob if restore_session (local fs) didn't recover fb_token
+_load_session_from_blob()
 
 # ── Scrapbook payment helpers ────────────────────────────────
 DEBUG_SCRAPBOOK = str(st.secrets.get("DEBUG_SCRAPBOOK", "false")).strip().lower() == "true"
@@ -2987,6 +3068,10 @@ else:
                         (st.session_state.get("profile_summary", "") or "").encode("utf-8"), overwrite=True)
                 except Exception:
                     pass
+                # Persist session to Azure Blob so post-payment restore works
+                # even if Streamlit Cloud rotates containers during the Stripe
+                # round-trip (local filesystem cache is unreliable).
+                _save_session_to_blob()
                 try:
                     import stripe as _stripe_buy
                     _sk = st.secrets.get("STRIPE_SCRAPBOOK_SECRET_KEY") or st.secrets.get("STRIPE_SECRET_KEY")
