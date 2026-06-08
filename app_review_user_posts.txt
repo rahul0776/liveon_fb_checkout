@@ -1,0 +1,88 @@
+REVIEWER INSTRUCTIONS — user_posts permission
+
+Test login (Facebook):
+  Email: lotlikarrahul47@gmail.com
+  Password: rahula265025
+
+App URL: https://liveonfb.streamlit.app/
+
+About permissions:
+The app requests permissions incrementally — only public_profile at login,
+user_photos when the user creates a backup, and user_posts when the user
+generates the scrapbook. Each permission is requested at the exact moment
+its feature is used.
+
+About payments:
+Both the photo backup and the scrapbook PDF are gated by a Stripe test
+checkout. Use the test card details below — no real charge will occur.
+
+------------------------------------------------------------
+
+1. Go to https://liveonfb.streamlit.app/ and click "Login with Facebook".
+   The consent dialog requests public_profile only. Approve.
+
+2. Click "Create Backup". A Facebook OAuth dialog requests user_photos.
+   Approve. Wait for the backup progress bar to finish.
+
+3. On the backup row, click "Download the Backup $9.99". You will be
+   taken to Stripe Checkout.
+
+4. Fill in Stripe Checkout:
+     - Email: lotlikarrahul47@gmail.com
+     - Card number: 4242 4242 4242 4242
+     - Expiry: 11/28, CVC: 111
+     - Cardholder name: Rahul lotlikar
+     - Country: United States, ZIP: 14426
+     - Uncheck the phone number box if shown.
+
+   If a Stripe "Link" code pop-up appears, click the X to close it —
+   this is a Stripe feature, not part of our app.
+
+   Click "Pay".
+
+5. You will be redirected back to the Projects page. Click "Download
+   Backup" to download the ZIP. Open the ZIP and confirm it contains
+   ONLY photos — no post text, no profile data.
+
+6. Back on the Projects page, click "Generate Memories". You will be
+   taken to the Memories page.
+
+7. Click "Generate My Scrapbook". A Facebook OAuth dialog requests
+   user_posts. Approve. You will be returned automatically to the
+   Memories page.
+
+8. Click "Generate My Scrapbook" again. The app reads your post text
+   and:
+     - Builds a personalized personality summary about you.
+     - Generates 6-12 chapter titles grounded in your post themes.
+     - Sorts your photos into those chapters.
+     - Renders the scrapbook preview on the page.
+
+   The "RUNNING..." indicator in the top-right means the pipeline is
+   working. Allow up to 60 seconds.
+
+9. Scroll to the bottom of the scrapbook preview. Click "Buy the
+   Scrapbook to Download PDF", then click "Continue to Secure Checkout".
+
+10. Use the same Stripe test card details from Step 4. Click "Pay".
+
+11. You will be redirected back to the Projects page. The backup row
+    now shows "Download Scrapbook PDF" in place of the Generate
+    Memories button. Click it to download the PDF.
+
+12. Open the PDF and verify the legitimate user_posts usage:
+      - It contains a personalized personality summary of the test
+        user, derived from post text.
+      - It contains chapter titles reflecting themes from the user's
+        posts (e.g., Travel, Family, Milestones).
+      - Each chapter contains the user's own photos, organized by
+        chapter theme.
+      - NO raw post text is dumped into the PDF — only chapter
+        structure and the personality summary.
+
+13. Re-open the photos ZIP from Step 5 and confirm it still contains
+    ONLY photos — post content is never exported.
+
+------------------------------------------------------------
+
+Contact for access issues: jhorner@minedco.com

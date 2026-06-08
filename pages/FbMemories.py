@@ -2106,15 +2106,8 @@ def _page_cover(c, W, H, user_name: str, summary: str, chapters: list, fonts: tu
     c.drawCentredString(W/2, H/2 + 48, "A Life in Memories")
     _divider(c, W/2, H/2 + 32, half_w=75, color=_SB_GOLD)
 
-    # Summary
-    if summary:
-        _sf(c, (0.78, 0.76, 0.73))
-        c.setFont(cf, 9)
-        lines = wrap(summary.strip()[:380], 56)
-        ty = H/2 + 10
-        for line in lines[:5]:
-            c.drawCentredString(W/2, ty, line)
-            ty -= 13
+    # Summary block intentionally omitted — the scrapbook surfaces the user's
+    # memories through chapters and photos, not a derived personality blurb.
 
     # Chapter count
     _star_divider(c, W/2, H/2 - 80, half_w=55, color=_SB_GOLD)
@@ -2797,7 +2790,6 @@ if "classification" not in st.session_state:
         <div class="stat"><div class="val">{span}</div><div class="lbl">Years</div></div>
       </div>
       <div class="steps">
-        <span>🔍 Personality analysis</span>
         <span>📚 Chapter themes</span>
         <span>🖼️ Photo classification</span>
       </div>
@@ -2831,7 +2823,7 @@ if "classification" not in st.session_state:
                 st.caption("If you are not redirected automatically, click the button above.")
                 st.stop()
 
-            with st.spinner("🔍 Evaluating your personality and life themes..."):
+            with st.spinner("🔍 Analyzing your post themes..."):
                 user_name = st.session_state.get("fb_name", "this person")
                 user_gender = st.session_state.get("fb_gender", "unspecified").lower()
                 if user_gender == "female": p_sub, p_obj, p_pos = "she", "her", "her"
@@ -2942,21 +2934,8 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Memory Snapshot ───────────────────────────────────────
-    if st.session_state.get("profile_summary"):
-        st.markdown("""
-        <div class="snapshot-label">
-          <span>✦</span><span>Memory Snapshot</span><span>✦</span>
-        </div>
-        """, unsafe_allow_html=True)
-        _profile_text = st.session_state.get("profile_summary", "")
-        st.markdown(f"""
-        <div class="snapshot-card">
-          <p>{_profile_text}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # ── Coverage meter ─────────────────────────────────────
+    # ── Coverage meter ─────────────────────────────────────────
+    if True:
         used, total = _coverage(posts, cls)
         pct = int((used / total) * 100) if total else 0
         st.markdown(f"""
