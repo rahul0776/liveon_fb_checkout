@@ -5,6 +5,7 @@ import secrets as pysecrets
 from urllib.parse import urlencode
 
 import requests
+from pages.utils.facebook import FB_GRAPH_URL, FB_DIALOG_URL
 import streamlit as st
 from PIL import Image
 import hmac, hashlib, json, base64
@@ -122,7 +123,7 @@ def build_auth_url(additional_scopes="", extra_state=None) -> str:
         "response_type": "code",
         "state": make_state(extra_state),
     }
-    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+    return FB_DIALOG_URL + "/dialog/oauth?" + urlencode(params)
 
 # DISABLED - Posts permission not used
 # def build_posts_auth_url() -> str:
@@ -136,7 +137,7 @@ def build_auth_url(additional_scopes="", extra_state=None) -> str:
 def exchange_code_for_token(code: str) -> str | None:
     try:
         resp = requests.get(
-            "https://graph.facebook.com/v18.0/oauth/access_token",
+            f"{FB_GRAPH_URL}/oauth/access_token",
             params={
                 "client_id": CLIENT_ID,
                 "redirect_uri": REDIRECT_URI,
@@ -352,7 +353,7 @@ elif code:
             # Only verify identity if we have an expected user (step-up auth)
             if expected_user_id:
                 try:
-                    r = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}", timeout=5)
+                    r = requests.get(f"{FB_GRAPH_URL}/me?fields=id,name&access_token={access_token}", timeout=5)
                     r.raise_for_status()
                     profile = r.json()
                     new_user_id = str(profile.get("id"))
@@ -386,7 +387,7 @@ elif code:
                     _fb_name = ""
                     try:
                         _r = requests.get(
-                            f"https://graph.facebook.com/me?fields=id,name&access_token={access_token}",
+                            f"{FB_GRAPH_URL}/me?fields=id,name&access_token={access_token}",
                             timeout=5,
                         )
                         if _r.status_code == 200:

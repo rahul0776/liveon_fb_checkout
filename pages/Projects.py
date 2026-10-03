@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from azure.storage.blob import BlobServiceClient
 import requests
+from pages.utils.facebook import FB_GRAPH_URL, FB_DIALOG_URL
 import hashlib
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -308,7 +309,7 @@ if BILLING_READY:
 if "fb_token" in st.session_state and st.session_state["fb_token"]:
     try:
         response = requests.get(
-            f"https://graph.facebook.com/me?fields=id,name&access_token={st.session_state['fb_token']}",
+            f"{FB_GRAPH_URL}/me?fields=id,name&access_token={st.session_state['fb_token']}",
             timeout=10
         )
         response.raise_for_status()
@@ -683,7 +684,7 @@ DEFAULT_PAGE_SIZE = int(st.secrets.get("FB_PAGE_SIZE", os.getenv("FB_PAGE_SIZE",
 def fetch_data(endpoint, token, since=None, until=None, fields=None):
     if endpoint is None: return {}
     # add limit param
-    url = f"https://graph.facebook.com/me/{endpoint}?access_token={token}&limit={DEFAULT_PAGE_SIZE}"
+    url = f"{FB_GRAPH_URL}/me/{endpoint}?access_token={token}&limit={DEFAULT_PAGE_SIZE}"
     if fields: url += f"&fields={fields}"
     if since:  url += f"&since={since}"
     if until:  url += f"&until={until}"
@@ -729,7 +730,7 @@ def check_permission(permission_name):
         return False
         
     try:
-        r = requests.get(f"https://graph.facebook.com/me/permissions?access_token={token}", timeout=5)
+        r = requests.get(f"{FB_GRAPH_URL}/me/permissions?access_token={token}", timeout=5)
         data = r.json().get("data", [])
         for p in data:
             if p.get("permission") == permission_name and p.get("status") == "granted":
@@ -763,7 +764,7 @@ def build_step_up_auth_url(additional_scopes, extra_state=None):
         "response_type": "code",
         "state": state_token,
     }
-    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+    return FB_DIALOG_URL + "/dialog/oauth?" + urlencode(params)
 
 def save_json(obj, name, backup_dir: Path):
     fp = backup_dir / f"{name}.json"
@@ -1213,7 +1214,7 @@ else:
     else:
         token = st.session_state["fb_token"]
         try:
-            response = requests.get(f"https://graph.facebook.com/me?fields=id,name&access_token={token}", timeout=10)
+            response = requests.get(f"{FB_GRAPH_URL}/me?fields=id,name&access_token={token}", timeout=10)
             response.raise_for_status()
             fb_profile = response.json()
             fb_name_slug = (fb_profile.get("name", "user") or "user").replace(" ", "_")

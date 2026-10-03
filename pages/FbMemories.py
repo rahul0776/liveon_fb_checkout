@@ -5,6 +5,7 @@ import streamlit as st  # type: ignore
 st.set_page_config(page_title="🧠 Facebook Memories", layout="wide", initial_sidebar_state="collapsed")
 
 import requests
+from pages.utils.facebook import FB_GRAPH_URL, FB_DIALOG_URL
 import json
 import re
 from datetime import datetime, timedelta
@@ -941,7 +942,7 @@ def check_posts_permission(token: str) -> bool:
         # Method 1: Use Facebook's debug token endpoint to check actual permissions
         app_access_token = f"{st.secrets['FB_CLIENT_ID']}|{st.secrets['FB_CLIENT_SECRET']}"
         response = requests.get(
-            f"https://graph.facebook.com/debug_token",
+            f"{FB_GRAPH_URL}/debug_token",
             params={
                 "input_token": token,
                 "access_token": app_access_token
@@ -961,7 +962,7 @@ def check_posts_permission(token: str) -> bool:
     # Fallback Method 2: Try to access posts endpoint directly
     try:
         response = requests.get(
-            f"https://graph.facebook.com/me/posts?limit=1&access_token={token}",
+            f"{FB_GRAPH_URL}/me/posts?limit=1&access_token={token}",
             timeout=5
         )
         if response.status_code == 200:
@@ -1019,7 +1020,7 @@ def build_posts_auth_url() -> str:
         "state": make_state(extra_data=extra_data), # Pass intent and selection in state
         "auth_type": "rerequest",  # Force re-request even if previously denied
     }
-    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+    return FB_DIALOG_URL + "/dialog/oauth?" + urlencode(params)
 
 # Check if user has posts permission
 has_posts_permission = False
@@ -1038,7 +1039,7 @@ if qp.get("return_to") == "pages/FbMemories.py" and qp.get("code"):
     
     try:
         response = requests.get(
-            "https://graph.facebook.com/v18.0/oauth/access_token",
+            f"{FB_GRAPH_URL}/oauth/access_token",
             params={
                 "client_id": st.secrets["FB_CLIENT_ID"],
                 "redirect_uri": st.secrets["FB_REDIRECT_URI"], # Ensure consistency
@@ -1448,7 +1449,7 @@ def load_all_posts_from_blob(container: str, folder: str) -> list[dict]:
     return list(posts_by_id.values())
 
 def fetch_posts_from_api(token: str, max_pages: int = 50) -> list[dict]:
-    url = f"https://graph.facebook.com/me/posts?fields=id,message,created_time,full_picture,attachments{{media}}&limit=100&access_token={token}"
+    url = f"{FB_GRAPH_URL}/me/posts?fields=id,message,created_time,full_picture,attachments{{media}}&limit=100&access_token={token}"
     all_posts = []
     pages = 0
     while url and pages < max_pages:
